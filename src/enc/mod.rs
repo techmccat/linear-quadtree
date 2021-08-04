@@ -2,6 +2,9 @@ use std::io::{Result, Write};
 
 use bitvec::prelude::*;
 
+#[cfg(test)]
+pub mod tests;
+
 type BitVecU8 = BitVec<Msb0, u8>;
 
 pub struct LinearQuadTree<W: Write = Vec<u8>> {
