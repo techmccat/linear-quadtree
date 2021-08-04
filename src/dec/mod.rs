@@ -6,6 +6,7 @@ pub mod video;
 #[cfg(test)]
 mod tests;
 
+#[derive(Debug, PartialEq)]
 pub struct ParsedLeaf {
     depth: u8,
     pos: [u8; 7],
