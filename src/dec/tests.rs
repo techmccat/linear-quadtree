@@ -7,43 +7,43 @@ use super::LeafParser;
 #[test]
 fn parse() {
     let leaves = [
-        0b1_010_00_11,
-        0b1_011_00_10, 0b11_00_00_00,
-        0b1_100_00_10, 0b10_11_00_00,
-        0b1_101_00_10, 0b10_10_11_00,
-        0b1_110_00_10, 0b10_10_10_11,
-        0b00_00_10_10, 0b10_10_10_11,
+        0b1_010_01_01,
+        0b1_011_01_11, 0b01_00_00_00,
+        0b1_100_01_11, 0b11_01_00_00,
+        0b1_101_01_11, 0b11_11_01_00,
+        0b1_110_01_11, 0b11_11_11_01,
+        0b00_01_11_11, 0b11_11_11_01,
     ];
 
     let expect = [
         ParsedLeaf {
             depth: 2,
-            pos: [0, 3, 0, 0, 0, 0, 0],
+            pos: [1, 1, 0, 0, 0, 0, 0],
             feature: true,
         },
         ParsedLeaf {
             depth: 3,
-            pos: [0, 2, 3, 0, 0, 0, 0],
+            pos: [1, 3, 1, 0, 0, 0, 0],
             feature: true,
         },
         ParsedLeaf {
             depth: 4,
-            pos: [0, 2, 2, 3, 0, 0, 0],
+            pos: [1, 3, 3, 1, 0, 0, 0],
             feature: true,
         },
         ParsedLeaf {
             depth: 5,
-            pos: [0, 2, 2, 2, 3, 0, 0],
+            pos: [1, 3, 3, 3, 1, 0, 0],
             feature: true,
         },
         ParsedLeaf {
             depth: 6,
-            pos: [0, 2, 2, 2, 2, 3, 0],
+            pos: [1, 3, 3, 3, 3, 1, 0],
             feature: true,
         },
         ParsedLeaf {
             depth: 7,
-            pos: [0, 2, 2, 2, 2, 2, 3],
+            pos: [1, 3, 3, 3, 3, 3, 1],
             feature: true,
         },
     ];

@@ -5,7 +5,10 @@ use std::{
 };
 
 use bitvec::prelude::*;
-use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, primitives::Rectangle};
+use embedded_graphics::{
+    image::ImageRaw, pixelcolor::BinaryColor, prelude::*, primitives::Rectangle,
+};
+use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay};
 
 use crate::dec::LeafParser;
 use crate::enc::LinearQuadTree;
@@ -155,4 +158,64 @@ fn enc_then_draw() {
     dec.draw(&mut display).unwrap();
 
     assert_eq!(STAIR_BUF, display.buf.as_raw_slice())
+}
+
+#[test]
+fn bad_apple() -> std::io::Result<()> {
+    let mut read_buf = [0u8; 1024];
+    let mut leaf_buf = Vec::with_capacity(500);
+    let mut display = DumpableDisplay::default();
+
+    for path in read_dir("test_data/frames")?
+        .filter_map(|r| r.ok())
+        .filter(|e| e.metadata().unwrap().is_file())
+        .map(|e| e.path())
+    {
+        let mut file = File::open(&path)?;
+        file.read_exact(&mut read_buf)?;
+
+        let mut tree = LinearQuadTree::new(&mut leaf_buf);
+        tree.parse_slice_12864(&read_buf)?;
+
+        let dec = LeafParser::new(&leaf_buf);
+        dec.draw(&mut display).unwrap();
+
+        if read_buf != display.buf.as_raw_slice() {
+            let settings = OutputSettingsBuilder::new()
+                .theme(embedded_graphics_simulator::BinaryColorTheme::LcdBlue)
+                .build();
+            let mut dump_display =
+                SimulatorDisplay::with_default_color(Size::new(WIDTH, HEIGHT), BinaryColor::Off);
+
+            ImageRaw::new_binary(&read_buf, WIDTH)
+                .draw(&mut dump_display)
+                .unwrap();
+
+            dump_display
+                .to_rgb_output_image(&settings)
+                .save_png("test_data/left.png")
+                .unwrap();
+
+            dump_display.clear(BinaryColor::Off).unwrap();
+
+            ImageRaw::new_binary(&display.buf.as_raw_slice(), WIDTH)
+                .draw(&mut dump_display)
+                .unwrap();
+
+            dump_display
+                .to_rgb_output_image(&settings)
+                .save_png("test_data/right.png")
+                .unwrap();
+
+            panic!(
+                "Decoded image did not match the source file {}",
+                path.display()
+            )
+        }
+
+        display.clear(BinaryColor::Off).unwrap();
+        leaf_buf.clear();
+    }
+
+    Ok(())
 }
