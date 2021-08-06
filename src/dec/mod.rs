@@ -70,7 +70,11 @@ impl Drawable for ParsedLeaf {
         D: DrawTarget<Color = Self::Color>,
     {
         let (point, size) = self.position_and_size();
-        let rect = Rectangle::new(point, size);
+        let rect = if self.depth == 0 { 
+            Rectangle::new(point, size).intersection(&target.bounding_box())
+        } else {
+            Rectangle::new(point, size)
+        };
         target.fill_solid(&rect, self.color())
     }
 }
