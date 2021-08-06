@@ -1,7 +1,7 @@
 use std::{
     convert::Infallible,
     fs::{read_dir, File},
-    io::Read,
+    io::{Read, Write},
 };
 
 use bitvec::prelude::*;
@@ -206,6 +206,11 @@ fn bad_apple() -> std::io::Result<()> {
                 .to_rgb_output_image(&settings)
                 .save_png("test_data/right.png")
                 .unwrap();
+
+            let mut leaf_dump = File::create("test_data/leaves.txt")?;
+            let leaves: Vec<_> = LeafParser::new(&leaf_buf).into_iter().collect();
+
+            write!(&mut leaf_dump, "Leaf dump:\n{:#?}", leaves)?;
 
             panic!(
                 "Decoded image did not match the source file {}",

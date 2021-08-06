@@ -21,7 +21,7 @@ impl<W: Write> LinearQuadTree<W> {
     }
 
     pub fn parse_slice_12864(&mut self, slice: &[u8]) -> Result<()> {
-        if compare_bytes(slice) {
+        if compare_bits(slice.view_bits()) {
             if slice[0] == u8::MAX {
                 self.data.write(&[0b1_000_00_00])?;
             }
@@ -41,7 +41,6 @@ impl<W: Write> LinearQuadTree<W> {
 
         if f.uniform() {
             if f.color() {
-                // TODO: 
                 let depth = self.position.len();
                 let mut data = [0u8; 2];
                 let bits = data.view_bits_mut::<Msb0>();
@@ -84,20 +83,7 @@ impl<W: Write> LinearQuadTree<W> {
     }
 }
 
-pub fn compare_bytes(buf: &[u8]) -> bool {
-    let mut prev = buf[0];
-    for b in buf {
-        if *b != prev {
-            return false;
-        } else {
-            prev = *b
-        }
-    }
-
-    true
-}
-
-pub fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
+fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
     if buf.len() == 1 {
         return true;
     }
@@ -114,7 +100,7 @@ pub fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
     true
 }
 
-pub struct Frame {
+struct Frame {
     side: usize,
     buf: BitVecU8,
 }
@@ -125,11 +111,7 @@ impl Frame {
     }
 
     pub fn uniform(&self) -> bool {
-        if self.buf.len() > 16 {
-            compare_bytes(self.buf.as_raw_slice())
-        } else {
-            compare_bits(self.buf.as_ref())
-        }
+        compare_bits(self.buf.as_ref())
     }
 
     pub fn color(&self) -> bool {
