@@ -39,6 +39,9 @@ struct Sequence {
     #[argh(option, short = 'o', default = "String::from(\"-\")")]
     /// output file, defaults to standard output
     output: String,
+    #[argh(option, short = 'f')]
+    /// number of frames to process
+    frames: Option<u32>,
 }
 
 fn main() -> Result<(), Box<dyn Error>>{
@@ -84,7 +87,11 @@ fn sequence(args: Sequence)  -> io::Result<()> {
     let output = match_output(args.output);
 
     let mut enc = VideoEncoder::new(output);
-    io::copy(&mut input, &mut enc)?;
+    if let Some(f) = args.frames {
+        io::copy(&mut input.take(f as u64 * 1024), &mut enc)?;
+    } else {
+        io::copy(&mut input, &mut enc)?;
+    }
 
     Ok(())
 }
