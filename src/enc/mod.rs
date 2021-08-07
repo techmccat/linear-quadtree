@@ -2,6 +2,8 @@ use std::io::{Result, Write};
 
 use bitvec::prelude::*;
 
+pub mod video;
+
 #[cfg(test)]
 pub mod tests;
 
@@ -9,6 +11,7 @@ type BitVecU8 = BitVec<Msb0, u8>;
 
 pub struct LinearQuadTree<W: Write = Vec<u8>> {
     data: W,
+    count: usize,
     position: Vec<u8>,
 }
 
@@ -16,14 +19,15 @@ impl<W: Write> LinearQuadTree<W> {
     pub fn new(data: W) -> Self {
         Self {
             data,
+            count: 0,
             position: Vec::new(),
         }
     }
 
-    pub fn parse_slice_12864(&mut self, slice: &[u8]) -> Result<()> {
+    pub fn parse_slice_12864(&mut self, slice: &[u8]) -> Result<usize> {
         if compare_bits(slice.view_bits()) {
             if slice[0] == u8::MAX {
-                self.data.write(&[0b1_000_00_00])?;
+                self.count += self.data.write(&[0b1_000_00_00])?;
             }
         } else {
             let top = Frame::new(BitVecU8::from_slice(slice).unwrap(), 128);
@@ -32,7 +36,7 @@ impl<W: Write> LinearQuadTree<W> {
             self.parse_frame(right, 1)?;
         }
 
-        Ok(())
+        Ok(self.count)
     }
 
     fn parse_frame(&mut self, f: Frame, pos: u8) -> Result<()> {
@@ -62,9 +66,9 @@ impl<W: Write> LinearQuadTree<W> {
                 }
 
                 if depth > 2 {
-                    self.data.write(&data)?;
+                    self.count += self.data.write(&data)?;
                 } else {
-                    self.data.write(&data[..1])?;
+                    self.count += self.data.write(&data[..1])?;
                 }
             }
 

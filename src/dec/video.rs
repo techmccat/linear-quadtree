@@ -1,22 +1,22 @@
 use core::convert::TryInto;
 use core::mem::size_of;
 
-pub struct LeafSlice<'a> {
+pub struct VideoSlice<'a> {
     buf: &'a [u8],
     index: usize,
 }
 
-impl<'a> Iterator for LeafSlice<'a> {
+impl<'a> Iterator for VideoSlice<'a> {
     type Item = super::LeafParser<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let ptrsize = size_of::<usize>();
         if self.buf.len() > self.index + ptrsize {
-            let frame_size = usize::from_le_bytes(
+            let frame_size = u16::from_le_bytes(
                 self.buf[self.index..self.index + ptrsize]
                     .try_into()
-                    .unwrap(),
-            );
+                    .unwrap()
+            ) as usize;
 
             let start = self.index + ptrsize;
             let end = start + frame_size;
