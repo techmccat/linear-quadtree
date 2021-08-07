@@ -13,6 +13,7 @@ pub struct LinearQuadTree<W: Write = Vec<u8>> {
     data: W,
     count: usize,
     position: Vec<u8>,
+    active_feature: bool
 }
 
 impl<W: Write> LinearQuadTree<W> {
@@ -20,12 +21,26 @@ impl<W: Write> LinearQuadTree<W> {
         Self {
             data,
             count: 0,
-            position: Vec::new(),
+            position: Vec::with_capacity(7),
+            active_feature: true
         }
     }
 
     pub fn parse_slice_12864(&mut self, slice: &[u8]) -> Result<usize> {
-        if compare_bits(slice.view_bits()) {
+        self.active_feature = {
+            let bits = slice.view_bits::<Msb0>();
+            // whichever has less elements
+            bits.count_ones() < bits.count_zeros()
+        };
+
+        //  First bit defines the active feature
+        self.data.write(if self.active_feature {
+            &[1]
+        } else {
+            &[0]
+        })?;
+
+        if compare_bits(slice.view_bits()) == self.active_feature {
             if slice[0] == u8::MAX {
                 self.count += self.data.write(&[0b1_000_00_00])?;
             }
@@ -44,7 +59,7 @@ impl<W: Write> LinearQuadTree<W> {
         self.position.push(pos);
 
         if f.uniform() {
-            if f.color() {
+            if f.color() == self.active_feature {
                 let depth = self.position.len();
                 let mut data = [0u8; 2];
                 let bits = data.view_bits_mut::<Msb0>();

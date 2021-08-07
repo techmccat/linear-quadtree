@@ -8,7 +8,7 @@ fn full() {
     let mut tree = LinearQuadTree::new(&mut out);
     tree.parse_slice_12864(&buf).unwrap();
 
-    assert_eq!(out, [0b1_000_00_00])
+    assert_eq!(out, [0])
 }
 
 #[test]
@@ -19,12 +19,13 @@ fn empty() {
     let mut tree = LinearQuadTree::new(&mut out);
     tree.parse_slice_12864(&buf).unwrap();
 
-    assert_eq!(out, [])
+    assert_eq!(out, [1])
 }
 
 #[test]
 fn stairs() {
     let m = u8::MAX;
+    #[rustfmt::skip]
     let buf = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, m, m, m, m,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, m, m, m, m,
@@ -92,7 +93,9 @@ fn stairs() {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
 
+    #[rustfmt::skip]
     let expected: &[u8] = &[
+        1,
         0b1_010_01_01,
         0b1_011_01_11, 0b01_00_00_00,
         0b1_100_01_11, 0b11_01_00_00,
@@ -101,7 +104,7 @@ fn stairs() {
         0b00_01_11_11, 0b11_11_11_01,
     ];
 
-    let mut out = Vec::with_capacity(12);
+    let mut out = Vec::with_capacity(expected.len());
 
     let mut tree = LinearQuadTree::new(&mut out);
     tree.parse_slice_12864(&buf).unwrap();
