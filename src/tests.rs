@@ -13,88 +13,10 @@ use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay};
 use crate::dec::LeafParser;
 use crate::enc::LinearQuadTree;
 
+use crate::enc::tests::{BUF, EXPECTED};
+
 const WIDTH: u32 = 128;
 const HEIGHT: u32 = 64;
-const M: u8 = u8::MAX;
-
-#[rustfmt::skip]
-const STAIR_BUF: &[u8] = &[
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, 0, 0, 0, 0, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, 0, 0, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, 0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0x0f, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0x0f, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0b0011_1111, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M, 
-    0b0111_1111, M, M, M, M, M, M, M, M, M, M, M, M, M, M, M
-];
-
-#[rustfmt::skip]
-const STAIRS_BYTES: &[u8] = &[
-    0b00_00_10_10, 0b10_10_10_11,
-    0b1_110_00_10, 0b10_10_10_11,
-    0b1_101_00_10, 0b10_10_11_00,
-    0b1_100_00_10, 0b10_11_00_00,
-    0b1_011_00_10, 0b11_00_00_00,
-    0b1_010_00_11,
-    0b1_001_01_00,
-];
 
 #[derive(Default)]
 struct DumpableDisplay {
@@ -147,17 +69,17 @@ fn enc_then_draw() {
     let mut out = Vec::with_capacity(12);
 
     let mut tree = LinearQuadTree::new(&mut out);
-    tree.parse_slice_12864(STAIR_BUF).unwrap();
+    tree.parse_slice_12864(&BUF).unwrap();
 
     // really just a sanity check
-    assert_eq!(STAIRS_BYTES, out.as_slice());
+    assert_eq!(EXPECTED, out.as_slice());
 
     let mut display = DumpableDisplay::default();
 
-    let dec = LeafParser::new(&out);
+    let dec = LeafParser::new(&out).unwrap();
     dec.draw(&mut display).unwrap();
 
-    assert_eq!(STAIR_BUF, display.buf.as_raw_slice())
+    assert_eq!(BUF, display.buf.as_raw_slice())
 }
 
 #[test]
@@ -177,7 +99,7 @@ fn bad_apple() -> std::io::Result<()> {
         let mut tree = LinearQuadTree::new(&mut leaf_buf);
         tree.parse_slice_12864(&read_buf)?;
 
-        let dec = LeafParser::new(&leaf_buf);
+        let dec = LeafParser::new(&leaf_buf).unwrap();
         dec.draw(&mut display).unwrap();
 
         if read_buf != display.buf.as_raw_slice() {
@@ -208,7 +130,7 @@ fn bad_apple() -> std::io::Result<()> {
                 .unwrap();
 
             let mut leaf_dump = File::create("test_data/leaves.txt")?;
-            let leaves: Vec<_> = LeafParser::new(&leaf_buf).into_iter().collect();
+            let leaves: Vec<_> = LeafParser::new(&leaf_buf).unwrap().into_iter().collect();
 
             write!(&mut leaf_dump, "Leaf dump:\n{:#?}", leaves)?;
 
