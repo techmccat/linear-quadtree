@@ -79,15 +79,24 @@ impl Drawable for ParsedLeaf {
     }
 }
 
+#[derive(Debug)]
+pub enum ParseError {
+    InvalidHeader
+}
+
 pub struct LeafParser<'a> {
     buf: &'a [u8],
+    feature: bool,
 }
 
 impl<'a> LeafParser<'a> {
-    pub fn new(buf: &'a [u8]) -> Self {
-        Self { buf }
+    pub fn new(buf: &'a [u8]) -> Result<Self, ParseError> {
+        match buf.get(0) {
+            Some(1) => Ok(Self { buf, feature: true }),
+            Some(0) => Ok(Self { buf, feature: false }),
+            _ => Err(ParseError::InvalidHeader)
+        }
     }
-
 }
 
 impl<'a> IntoIterator for &'a LeafParser<'a> {
@@ -96,8 +105,9 @@ impl<'a> IntoIterator for &'a LeafParser<'a> {
 
     fn into_iter(self) -> Self::IntoIter {
         LeafParserIter {
-            buf: self.buf,
+            buf: &self.buf[1..],
             index: 0,
+            feature: self.feature
         }
     }
 }
@@ -105,6 +115,7 @@ impl<'a> IntoIterator for &'a LeafParser<'a> {
 pub struct LeafParserIter<'a> {
     buf: &'a [u8],
     index: usize,
+    feature: bool,
 }
 
 impl<'a> Iterator for LeafParserIter<'a> {
@@ -147,7 +158,7 @@ impl<'a> Iterator for LeafParserIter<'a> {
         let ret = Some(Self::Item {
             depth,
             pos,
-            feature: true,
+            feature: self.feature
         });
 
         ret
@@ -167,6 +178,8 @@ impl ImageDrawable for LeafParser<'_> {
     where
         D: DrawTarget<Color = Self::Color>,
     {
+        target.clear(Self::Color::from(!self.feature))?;
+
         for leaf in self.into_iter() {
             leaf.draw(target)?
         }

@@ -23,7 +23,7 @@ impl<'a> Iterator for VideoSlice<'a> {
             self.index = end;
 
             if self.buf.len() < end {
-                Some(Self::Item::new(&self.buf[start..end]))
+                Self::Item::new(&self.buf[start..end]).ok()
             } else {
                 None
             }
