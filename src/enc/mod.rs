@@ -39,6 +39,7 @@ impl<W: Write> LinearQuadTree<W> {
         } else {
             &[0]
         })?;
+        self.count += 1;
 
         if compare_bits(slice.view_bits()) {
             if (slice[0] == u8::MAX) == self.active_feature {
