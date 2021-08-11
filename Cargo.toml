@@ -6,8 +6,13 @@ version = "0.1.2"
 [[bin]]
 name = "linear-quadtree"
 
+[features]
+default = ["enc", "dec"]
+enc = []
+dec = []
+
 [dependencies]
-argh = "*"
+argh = "0.1.5"
 bitvec = "0.22.3"
 embedded-graphics = "0.7.1"
 
