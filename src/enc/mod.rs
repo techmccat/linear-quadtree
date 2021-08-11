@@ -104,6 +104,11 @@ impl<W: Write> LinearQuadTree<W> {
 
 fn compare_bytes(buf: &[u8]) -> bool {
     let mut prev = buf[0];
+
+    if !(prev == u8::MAX || prev == 0) {
+        return false
+    }
+
     for b in buf {
         if *b != prev {
             return false;
@@ -116,6 +121,11 @@ fn compare_bytes(buf: &[u8]) -> bool {
 }
 
 fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
+    if buf.len() >= 16 {
+        let bytes = buf.as_raw_slice();
+        return compare_bytes(bytes)
+    }
+
     if buf.len() == 1 {
         return true;
     }
@@ -143,12 +153,6 @@ impl Frame {
     }
 
     pub fn uniform(&self) -> bool {
-        if self.buf.len() >= 16 {
-            let bytes = self.buf.as_raw_slice();
-            if bytes[0] == u8::MAX {
-                return compare_bytes(self.buf.as_raw_slice())
-            }
-        }
         compare_bits(self.buf.as_ref())
     }
 
