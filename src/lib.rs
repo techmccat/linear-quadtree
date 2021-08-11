@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 #[cfg(feature = "dec")]
 pub mod dec;
 #[cfg(feature = "enc")]

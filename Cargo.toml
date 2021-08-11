@@ -1,20 +1,21 @@
 [package]
 edition = "2018"
 name = "linear-quadtree"
-version = "0.2.0"
+version = "0.2.1"
 
 [[bin]]
 name = "linear-quadtree"
 
 [features]
 default = ["enc", "dec"]
-enc = []
-dec = []
+enc = ["std"]
+dec = ["embedded-graphics"]
+std = ["argh", "bitvec/std"]
 
 [dependencies]
-argh = "0.1.5"
-bitvec = "0.22.3"
-embedded-graphics = "0.7.1"
+argh = { version = "0.1.5", optional = true }
+bitvec = { version = "0.22.3", default-features = false }
+embedded-graphics = { version = "0.7.1", optional = true }
 
 [dev-dependencies]
 embedded-graphics-simulator = { version = "0.3", default-features = false }
