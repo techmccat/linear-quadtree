@@ -1,8 +1,8 @@
-use embedded_graphics::{mock_display, prelude::ImageDrawable, Drawable};
-
-use crate::dec::ParsedLeaf;
-
+use crate::dec::Leaf;
 use super::LeafParser;
+
+use heapless::Vec;
+use embedded_graphics::{mock_display, prelude::ImageDrawable, Drawable};
 
 #[test]
 fn parse() {
@@ -22,34 +22,28 @@ fn parse() {
     ];
 
     let expect = [
-        ParsedLeaf {
-            depth: 2,
-            pos: [1, 1, 0, 0, 0, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[1, 1]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 3,
-            pos: [1, 3, 1, 0, 0, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[1, 3, 1]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 4,
-            pos: [1, 3, 3, 1, 0, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[1, 3, 3, 1]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 5,
-            pos: [1, 3, 3, 3, 1, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[1, 3, 3, 3, 1]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 6,
-            pos: [1, 3, 3, 3, 3, 1, 0],
+        Leaf {
+            pos: Vec::from_slice(&[1, 3, 3, 3, 3, 1]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 7,
-            pos: [1, 3, 3, 3, 3, 3, 1],
+        Leaf {
+            pos: Vec::from_slice(&[1, 3, 3, 3, 3, 3, 1]).unwrap(),
             feature: true,
         },
     ];
@@ -64,9 +58,8 @@ fn parse() {
 
 #[test]
 fn draw_full() {
-    let leaf = ParsedLeaf {
-        depth: 1,
-        pos: [0; 7],
+    let leaf = Leaf {
+        pos: Vec::from_slice(&[0]).unwrap(),
         feature: true,
     };
     let mut display = mock_display::MockDisplay::new();
@@ -147,34 +140,28 @@ fn draw_stairs() {
     ];
 
     let leaves = [
-        ParsedLeaf {
-            depth: 2,
-            pos: [0, 3, 0, 0, 0, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[0, 3]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 3,
-            pos: [0, 2, 3, 0, 0, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[0, 2, 3]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 4,
-            pos: [0, 2, 2, 3, 0, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[0, 2, 2, 3]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 5,
-            pos: [0, 2, 2, 2, 3, 0, 0],
+        Leaf {
+            pos: Vec::from_slice(&[0, 2, 2, 2, 3]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 6,
-            pos: [0, 2, 2, 2, 2, 3, 0],
+        Leaf {
+            pos: Vec::from_slice(&[0, 2, 2, 2, 2, 3]).unwrap(),
             feature: true,
         },
-        ParsedLeaf {
-            depth: 7,
-            pos: [0, 2, 2, 2, 2, 2, 3],
+        Leaf {
+            pos: Vec::from_slice(&[0, 2, 2, 2, 2, 2, 3]).unwrap(),
             feature: true,
         },
     ];

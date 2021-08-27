@@ -1,3 +1,5 @@
+use crate::Leaf;
+
 use bitvec::prelude::*;
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, primitives::Rectangle};
 
@@ -6,22 +8,21 @@ pub mod video;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, PartialEq)]
-pub struct ParsedLeaf {
-    depth: u8,
-    pos: [u8; 7],
-    feature: bool,
+impl Leaf {
+    pub fn feature(&self) -> BinaryColor {
+        self.feature.into()
+    }
 }
 
-impl ParsedLeaf {
-    pub fn position_and_size(&self) -> (Point, Size) {
+impl Dimensions for Leaf {
+    fn bounding_box(&self) -> Rectangle {
         let mut s = 128;
         let mut x = 0;
         let mut y = 0;
 
-        for i in 0..self.depth as usize {
+        for p in &self.pos {
             s /= 2;
-            match self.pos[i] {
+            match p {
                 0 => (),
                 1 => x += s,
                 2 => y += s,
@@ -36,46 +37,25 @@ impl ParsedLeaf {
         let point = Point::new(x as i32, y as i32);
         let size = Size::new_equal(s);
         
-        (point, size)
-    }
-
-    pub fn rectangle(&self) -> Rectangle {
-        let (point, size) = self.position_and_size();
-        let base = Rectangle::new(Point::zero(), Size::new(128, 64));
-        Rectangle::new(point, size).intersection(&base)
-    }
-
-    pub fn color(&self) -> BinaryColor {
-        self.feature.into()
+        Rectangle::new(point, size)
     }
 }
 
-impl OriginDimensions for ParsedLeaf {
-    fn size(&self) -> Size {
-        if self.depth == 0 {
-            Size::new(128, 64)
-        } else {
-            let s = 128 / (2u32.pow(self.depth as u32));
-            Size::new_equal(s as u32)
-        }
-    }
-}
-
-impl Drawable for ParsedLeaf {
+impl Drawable for Leaf {
     type Color = BinaryColor;
     type Output = ();
 
-    fn draw<D>(&self, target: &mut D) -> Result<Self::Output, D::Error>
+    fn draw<DT>(&self, target: &mut DT) -> Result<Self::Output, DT::Error>
     where
-        D: DrawTarget<Color = Self::Color>,
+        DT: DrawTarget<Color = Self::Color>,
     {
-        let (point, size) = self.position_and_size();
-        let rect = if self.depth == 0 { 
+        let Rectangle{top_left: point, size} = self.bounding_box();
+        let rect = if self.pos.len() == 0 { 
             Rectangle::new(point, size).intersection(&target.bounding_box())
         } else {
             Rectangle::new(point, size)
         };
-        target.fill_solid(&rect, self.color())
+        target.fill_solid(&rect, self.feature.into())
     }
 }
 
@@ -102,13 +82,13 @@ impl<'a> LeafParser<'a> {
 
 impl<'a> IntoIterator for &'a LeafParser<'a> {
     type IntoIter = LeafParserIter<'a>;
-    type Item = ParsedLeaf;
+    type Item = Leaf;
 
     fn into_iter(self) -> Self::IntoIter {
         LeafParserIter {
             buf: &self.buf[1..],
             index: 0,
-            feature: self.feature
+            feature: self.feature,
         }
     }
 }
@@ -120,7 +100,7 @@ pub struct LeafParserIter<'a> {
 }
 
 impl<'a> Iterator for LeafParserIter<'a> {
-    type Item = ParsedLeaf;
+    type Item = Leaf;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.buf.len() < self.index + 1 {
@@ -130,10 +110,10 @@ impl<'a> Iterator for LeafParserIter<'a> {
         let byte = self.buf[self.index];
         let cur = byte.view_bits::<Msb0>();
 
-        let mut pos = [0; 7];
+        let mut pos = heapless::Vec::new();
 
         let (depth, base_index) = if cur[0] {
-            let depth = cur[1..=3].load();
+            let depth: u8 = cur[1..=3].load();
             (depth, 1)
         } else {
             (7, 0)
@@ -141,8 +121,11 @@ impl<'a> Iterator for LeafParserIter<'a> {
 
         for i in base_index..3 {
             let bitpos = (i + 1) * 2;
-            pos[i - base_index] = cur[bitpos..=bitpos + 1].load();
+            let side = cur[bitpos..=bitpos + 1].load();
+            pos.push(side).expect("Exceeded max depth");
         }
+
+        pos.truncate(depth as usize);
 
         if depth > 2 {
             self.index += 1;
@@ -150,34 +133,32 @@ impl<'a> Iterator for LeafParserIter<'a> {
 
             for i in 3..=(if depth < 7 { depth } else { 6 }) as usize {
                 let bitpos = (i - 3) * 2;
-                pos[i - base_index] = next[bitpos..=bitpos + 1].load();
+                let side = next[bitpos..=bitpos + 1].load();
+                pos.push(side).expect("Exceeded max depth");
             }
         }
 
         self.index += 1;
 
-        let ret = Some(Self::Item {
-            depth,
+        Some(Self::Item {
             pos,
             feature: self.feature
-        });
-
-        ret
+        })
     }
 }
 
 impl OriginDimensions for LeafParser<'_> {
     fn size(&self) -> Size {
-        Size::new(128, 64)
+        Size::new_equal(2u32.pow(7))
     }
 }
 
 impl ImageDrawable for LeafParser<'_> {
     type Color = BinaryColor;
 
-    fn draw<D>(&self, target: &mut D) -> Result<(), D::Error>
+    fn draw<DT>(&self, target: &mut DT) -> Result<(), DT::Error>
     where
-        D: DrawTarget<Color = Self::Color>,
+        DT: DrawTarget<Color = Self::Color>,
     {
         target.clear(Self::Color::from(!self.feature))?;
 
@@ -188,15 +169,16 @@ impl ImageDrawable for LeafParser<'_> {
         Ok(())
     }
 
-    fn draw_sub_image<D>(&self, target: &mut D, area: &Rectangle) -> Result<(), D::Error>
+    // TODO: z-curves are a thing, I should use them
+    fn draw_sub_image<DT>(&self, target: &mut DT, area: &Rectangle) -> Result<(), DT::Error>
     where
-        D: DrawTarget<Color = Self::Color>,
+        DT: DrawTarget<Color = Self::Color>,
     {
         for leaf in self.into_iter() {
-            let rect = leaf.rectangle().intersection(area);
+            let rect = leaf.bounding_box().intersection(area);
 
             if !rect.is_zero_sized() {
-                target.fill_solid(&rect, leaf.color())?
+                target.fill_solid(&rect, leaf.feature.into())?
             }
         }
         Ok(())

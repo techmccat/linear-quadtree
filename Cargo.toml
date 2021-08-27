@@ -16,6 +16,7 @@ std = ["argh", "bitvec/std"]
 argh = { version = "0.1.5", optional = true }
 bitvec = { version = "0.22.3", default-features = false }
 embedded-graphics = { version = "0.7.1", optional = true }
+heapless = "0.7.5"
 
 [dev-dependencies]
 embedded-graphics-simulator = { version = "0.3", default-features = false }
