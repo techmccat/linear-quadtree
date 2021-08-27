@@ -84,6 +84,7 @@ pub enum ParseError {
     InvalidHeader
 }
 
+#[derive(Debug, PartialEq)]
 pub struct LeafParser<'a> {
     buf: &'a [u8],
     feature: bool,
