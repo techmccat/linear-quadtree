@@ -1,6 +1,6 @@
-use std::{cmp::min, io::{Result as IoResult, Write}};
-
 use super::LinearQuadTree;
+
+use std::{cmp::min, fs::File, io::{Result as IoResult, Write}};
 
 pub struct VideoEncoder<W: Write> {
     writer: W,
@@ -20,9 +20,15 @@ impl<W: Write> VideoEncoder<W> {
     }
 
     fn encode_buf(&mut self) -> IoResult<()> {
-        let mut encoder = LinearQuadTree::new(&mut self.leaf_buf);
-        let len = encoder.parse_slice_12864(&self.buf)?;
+        let mut encoder = LinearQuadTree::new();
+        encoder.parse_12864(&self.buf);
+        let len = encoder.store_packed(&mut self.leaf_buf)?;
         self.cursor = 0;
+
+        if len > 1024 {
+            let mut f = File::create(format!("test_data/chonk/{}.lqt", len))?;
+            f.write_all(&self.leaf_buf)?
+        }
 
         self.writer.write_all(&(len as u16).to_le_bytes())?;
         self.writer.write_all(&self.leaf_buf)?;

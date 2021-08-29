@@ -13,7 +13,7 @@ use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay};
 use crate::dec::LeafParser;
 use crate::enc::LinearQuadTree;
 
-use crate::enc::tests::{BUF, EXPECTED};
+use crate::enc::tests::{BUF, EXPECTED_BYTES};
 
 const WIDTH: u32 = 128;
 const HEIGHT: u32 = 64;
@@ -68,11 +68,12 @@ impl DrawTarget for DumpableDisplay {
 fn enc_then_draw() {
     let mut out = Vec::with_capacity(12);
 
-    let mut tree = LinearQuadTree::new(&mut out);
-    tree.parse_slice_12864(&BUF).unwrap();
+    let mut tree = LinearQuadTree::new();
+    tree.parse_12864(&BUF);
+    tree.store_packed(&mut out).unwrap();
 
     // really just a sanity check
-    assert_eq!(EXPECTED, out.as_slice());
+    assert_eq!(EXPECTED_BYTES, out.as_slice());
 
     let mut display = DumpableDisplay::default();
 
@@ -96,8 +97,9 @@ fn bad_apple() -> std::io::Result<()> {
         let mut file = File::open(&path)?;
         file.read_exact(&mut read_buf)?;
 
-        let mut tree = LinearQuadTree::new(&mut leaf_buf);
-        tree.parse_slice_12864(&read_buf)?;
+        let mut tree = LinearQuadTree::new();
+        tree.parse_12864(&read_buf);
+        tree.store_packed(&mut leaf_buf).unwrap();
 
         let dec = LeafParser::new(&leaf_buf).unwrap();
         dec.draw(&mut display).unwrap();

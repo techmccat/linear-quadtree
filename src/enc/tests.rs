@@ -70,9 +70,19 @@ pub const BUF: [u8; 1024] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
+// can't make this constant because stuff
+fn expected_leaves() -> [Leaf; 6] {[
+    Leaf::new(true, heapless::Vec::from_slice(&[1, 1]).unwrap()),
+    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 1]).unwrap()),
+    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 1]).unwrap()),
+    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 1]).unwrap()),
+    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 1]).unwrap()),
+    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 3, 1]).unwrap()),
+]}
+
 #[rustfmt::skip]
-pub const EXPECTED: &[u8] = &[
-1,
+pub const EXPECTED_BYTES: &[u8] = &[
+    1,
     0b1_010_01_01,
     0b1_011_01_11, 0b01_00_00_00,
     0b1_100_01_11, 0b11_01_00_00,
@@ -83,34 +93,42 @@ pub const EXPECTED: &[u8] = &[
 
 #[test]
 fn full() {
-    let buf = [u8::MAX; 128 * 64];
+    let buf = [u8::MAX; 128 * 64 / 8];
     let mut out = Vec::with_capacity(1);
 
-    let mut tree = LinearQuadTree::new(&mut out);
-    tree.parse_slice_12864(&buf).unwrap();
+    let mut tree = LinearQuadTree::new();
+    tree.parse_12864(&buf);
 
+    assert_eq!(tree.0, [Leaf::new(true, heapless::Vec::from_slice(&[]).unwrap())]);
+
+    tree.store_packed(&mut out).unwrap();
     assert_eq!(out, [0])
 }
 
 #[test]
 fn empty() {
-    let buf = [0; 128 * 64];
+    let buf = [0; 128 * 64 / 8];
     let mut out = Vec::new();
 
-    let mut tree = LinearQuadTree::new(&mut out);
-    tree.parse_slice_12864(&buf).unwrap();
+    let mut tree = LinearQuadTree::new();
+    tree.parse_12864(&buf);
 
+    assert_eq!(tree.0, [Leaf::new(false, heapless::Vec::from_slice(&[]).unwrap())]);
+
+    tree.store_packed(&mut out).unwrap();
     assert_eq!(out, [1])
 }
 
 #[test]
 fn stairs() {
+    let mut out = Vec::with_capacity(EXPECTED_BYTES.len());
 
+    let mut tree = LinearQuadTree::new();
+    tree.parse_12864(&BUF);
 
-    let mut out = Vec::with_capacity(EXPECTED.len());
+    let active: Vec<_> = tree.0.clone().into_iter().filter(|l| l.feature).collect();
+    assert_eq!(active, expected_leaves());
 
-    let mut tree = LinearQuadTree::new(&mut out);
-    tree.parse_slice_12864(&BUF).unwrap();
-
-    assert_eq!(EXPECTED, out.as_slice())
+    tree.store_packed(&mut out).unwrap();
+    assert_eq!(out, EXPECTED_BYTES)
 }

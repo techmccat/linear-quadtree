@@ -129,7 +129,8 @@ impl<'a> Iterator for LeafParserIter<'a> {
 
         if depth > 2 {
             self.index += 1;
-            let next = self.buf[self.index].view_bits::<Msb0>();
+            let next = self.buf.get(self.index);
+            let next = if let Some(b) = next { b.view_bits::<Msb0>() } else { return None };
 
             for i in 3..=(if depth < 7 { depth } else { 6 }) as usize {
                 let bitpos = (i - 3) * 2;

@@ -1,5 +1,6 @@
-use std::io::{Result, Write};
+use crate::Leaf;
 
+use std::io::{Write, Result as IoResult};
 use bitvec::prelude::*;
 
 pub mod video;
@@ -9,97 +10,112 @@ pub mod tests;
 
 type BitVecU8 = BitVec<Msb0, u8>;
 
-pub struct LinearQuadTree<W: Write = Vec<u8>> {
-    data: W,
-    count: usize,
-    position: Vec<u8>,
-    active_feature: bool
+impl Leaf {
+    fn write<W: std::io::Write>(&self, mut w: W) -> IoResult<usize> {
+        let depth = self.pos.len();
+        let mut data = [0u8; 2];
+        let bits = data.view_bits_mut::<Msb0>();
+
+        if depth == 7 {
+            for (i, p) in self.pos.iter().enumerate() {
+                bits[2..][i * 2..=i * 2 + 1].store(*p);
+            }
+        } else {
+            bits[..1].store(1u8);
+            bits[1..4].store(depth);
+
+            for (i, p) in self.pos.iter().enumerate() {
+                bits[4..][i * 2..=i * 2 + 1].store(*p)
+            }
+        }
+
+        if depth > 2 {
+            w.write(&data)
+        } else {
+            w.write(&data[..1])
+        }
+    }
 }
 
-impl<W: Write> LinearQuadTree<W> {
-    pub fn new(data: W) -> Self {
-        Self {
-            data,
-            count: 0,
-            position: Vec::with_capacity(7),
-            active_feature: true
-        }
+#[derive(Default)]
+pub struct LinearQuadTree(Vec<Leaf>);
+
+impl LinearQuadTree {
+    pub const fn new() -> Self {
+        Self(Vec::new())
     }
 
-    pub fn parse_slice_12864(&mut self, slice: &[u8]) -> Result<usize> {
-        self.active_feature = {
-            let bits = slice.view_bits::<Msb0>();
-            // whichever has less elements
-            bits.count_ones() < bits.count_zeros()
-        };
+    pub fn with_capacity(cap: usize) -> Self {
+        Self(Vec::with_capacity(cap))
+    }
 
-        //  First bit defines the active feature
-        self.data.write(if self.active_feature {
-            &[1]
-        } else {
-            &[0]
-        })?;
-        self.count += 1;
+    pub fn parse_12864(&mut self, buf: &[u8; 1024]) {
+        let f = Frame::new(BitVecU8::from_slice(buf).unwrap(), 128);
+        let mut parser = BulkParse::new(&mut self.0);
+        parser.parse_12864(f)
+    }
 
-        if compare_bits(slice.view_bits()) {
-            if (slice[0] == u8::MAX) == self.active_feature {
-                self.count += self.data.write(&[0b1_000_00_00])?;
+    pub fn store_packed<W: Write>(&self, mut w: W) -> IoResult<usize> {
+        let yes = self.0.iter().filter(|l| l.feature);
+        let no = self.0.iter().filter(|l| !l.feature);
+
+        let mut count = 1;
+
+        if yes.clone().count() < no.clone().count() {
+            w.write_all(&[1])?;
+            for leaf in yes {
+                count += leaf.write(&mut w)?;
             }
         } else {
-            let top = Frame::new(BitVecU8::from_slice(slice).unwrap(), 128);
-            let (left, right) = top.split_v();
-            self.parse_frame(left, 0)?;
-            self.parse_frame(right, 1)?;
+            w.write_all(&[0])?;
+            for leaf in no {
+                count += leaf.write(&mut w)?;
+            }
         }
 
-        Ok(self.count)
+        Ok(count)
+    }
+}
+
+struct BulkParse<'a> {
+    pos: heapless::Vec<u8, 7>,
+    out: &'a mut Vec<Leaf>,
+}
+
+impl<'a> BulkParse<'a> {
+    pub fn new(out: &'a mut Vec<Leaf>) -> Self {
+        Self {
+            pos: Default::default(),
+            out,
+        }
     }
 
-    fn parse_frame(&mut self, f: Frame, pos: u8) -> Result<()> {
-        //println!("Parsing frame of {} bytes", f.buf.len());
-        self.position.push(pos);
+    pub fn parse_12864(&mut self, f: Frame) {
+        if f.uniform() {
+            self.out.push(Leaf::new(f.color(), heapless::Vec::new()))
+        } else {
+            let (left, right) = f.split_v();
+            self.parse_frame(left, 0);
+            self.parse_frame(right, 1);
+        }
+    }
+
+    pub fn parse_frame(&mut self, f: Frame, pos: u8) {
+        self.pos
+            .push(pos)
+            .expect("Depth exceeded maximum available");
 
         if f.uniform() {
-            if f.color() == self.active_feature {
-                let depth = self.position.len();
-                let mut data = [0u8; 2];
-                let bits = data.view_bits_mut::<Msb0>();
-
-                if depth > 7 {
-                    panic!("Depth exceeded maximum available")
-                }
-                if depth == 7 {
-                    for (i, p) in self.position.iter().enumerate() {
-                        bits[2..][i * 2..=i * 2 + 1].store(*p);
-                    }
-                } else {
-                    bits[..1].store(1u8);
-                    bits[1..4].store(depth);
-
-                    for (i, p) in self.position.iter().enumerate() {
-                        bits[4..][i * 2..=i * 2 + 1].store(*p)
-                    }
-                }
-
-                if depth > 2 {
-                    self.count += self.data.write(&data)?;
-                } else {
-                    self.count += self.data.write(&data[..1])?;
-                }
-            }
-
-            self.position.pop();
+            self.out.push(Leaf::new(f.color(), self.pos.clone()));
         } else {
             let (tl, tr, bl, br) = f.split_four();
-            self.parse_frame(tl, 0)?;
-            self.parse_frame(tr, 1)?;
-            self.parse_frame(bl, 2)?;
-            self.parse_frame(br, 3)?;
-
-            self.position.pop();
+            self.parse_frame(tl, 0);
+            self.parse_frame(tr, 1);
+            self.parse_frame(bl, 2);
+            self.parse_frame(br, 3);
         }
 
-        Ok(())
+        self.pos.pop();
     }
 }
 
@@ -107,7 +123,7 @@ fn compare_bytes(buf: &[u8]) -> bool {
     let mut prev = buf[0];
 
     if !(prev == u8::MAX || prev == 0) {
-        return false
+        return false;
     }
 
     for b in buf {
@@ -124,7 +140,7 @@ fn compare_bytes(buf: &[u8]) -> bool {
 fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
     if buf.len() >= 16 {
         let bytes = buf.as_raw_slice();
-        return compare_bytes(bytes)
+        return compare_bytes(bytes);
     }
 
     if buf.len() == 1 {
@@ -143,7 +159,7 @@ fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
     true
 }
 
-struct Frame {
+pub struct Frame {
     side: usize,
     buf: BitVecU8,
 }

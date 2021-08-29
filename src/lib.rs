@@ -8,17 +8,17 @@ pub mod enc;
 #[cfg(test)]
 pub mod tests;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Leaf {
     pub feature: bool,
     pos: heapless::Vec<u8, 7>,
 }
 
 impl Leaf {
-    pub fn new(feature: bool) -> Self {
+    pub fn new(feature: bool, pos: heapless::Vec<u8, 7>) -> Self {
         Self {
             feature,
-            pos: heapless::Vec::new()
+            pos
         }
     }
 

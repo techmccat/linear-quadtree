@@ -76,8 +76,9 @@ fn frame(args: Frame) -> io::Result<()> {
     let mut buf = [0; 1024];
     input.read_exact(&mut buf)?;
 
-    let mut enc = LinearQuadTree::new(output);
-    enc.parse_slice_12864(&buf)?;
+    let mut enc = LinearQuadTree::new();
+    enc.parse_12864(&buf);
+    enc.store_packed(output)?;
 
     Ok(())
 }
