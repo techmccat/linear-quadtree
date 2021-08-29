@@ -36,7 +36,7 @@ impl Dimensions for Leaf {
 
         let point = Point::new(x as i32, y as i32);
         let size = Size::new_equal(s);
-        
+
         Rectangle::new(point, size)
     }
 }
@@ -49,8 +49,11 @@ impl Drawable for Leaf {
     where
         DT: DrawTarget<Color = Self::Color>,
     {
-        let Rectangle{top_left: point, size} = self.bounding_box();
-        let rect = if self.pos.len() == 0 { 
+        let Rectangle {
+            top_left: point,
+            size,
+        } = self.bounding_box();
+        let rect = if self.pos.len() == 0 {
             Rectangle::new(point, size).intersection(&target.bounding_box())
         } else {
             Rectangle::new(point, size)
@@ -61,7 +64,7 @@ impl Drawable for Leaf {
 
 #[derive(Debug)]
 pub enum ParseError {
-    InvalidHeader
+    InvalidHeader,
 }
 
 #[derive(Debug, PartialEq)]
@@ -74,8 +77,11 @@ impl<'a> LeafParser<'a> {
     pub fn new(buf: &'a [u8]) -> Result<Self, ParseError> {
         match buf.get(0) {
             Some(1) => Ok(Self { buf, feature: true }),
-            Some(0) => Ok(Self { buf, feature: false }),
-            _ => Err(ParseError::InvalidHeader)
+            Some(0) => Ok(Self {
+                buf,
+                feature: false,
+            }),
+            _ => Err(ParseError::InvalidHeader),
         }
     }
 }
@@ -130,7 +136,11 @@ impl<'a> Iterator for LeafParserIter<'a> {
         if depth > 2 {
             self.index += 1;
             let next = self.buf.get(self.index);
-            let next = if let Some(b) = next { b.view_bits::<Msb0>() } else { return None };
+            let next = if let Some(b) = next {
+                b.view_bits::<Msb0>()
+            } else {
+                return None;
+            };
 
             for i in 3..=(if depth < 7 { depth } else { 6 }) as usize {
                 let bitpos = (i - 3) * 2;
@@ -143,7 +153,7 @@ impl<'a> Iterator for LeafParserIter<'a> {
 
         Some(Self::Item {
             pos,
-            feature: self.feature
+            feature: self.feature,
         })
     }
 }

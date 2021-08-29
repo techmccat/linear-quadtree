@@ -1,6 +1,10 @@
 use super::LinearQuadTree;
 
-use std::{cmp::min, fs::File, io::{Result as IoResult, Write}};
+use std::{
+    cmp::min,
+    fs::File,
+    io::{Result as IoResult, Write},
+};
 
 pub struct VideoEncoder<W: Write> {
     writer: W,
@@ -11,11 +15,11 @@ pub struct VideoEncoder<W: Write> {
 
 impl<W: Write> VideoEncoder<W> {
     pub fn new(writer: W) -> Self {
-        Self { 
+        Self {
             writer,
             buf: [0; 1024],
             cursor: 0,
-            leaf_buf: Vec::with_capacity(512)
+            leaf_buf: Vec::with_capacity(512),
         }
     }
 

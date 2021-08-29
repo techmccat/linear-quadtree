@@ -1,8 +1,8 @@
-use crate::dec::Leaf;
 use super::LeafParser;
+use crate::dec::Leaf;
 
-use heapless::Vec;
 use embedded_graphics::{mock_display, prelude::ImageDrawable, Drawable};
+use heapless::Vec;
 
 #[test]
 fn parse() {

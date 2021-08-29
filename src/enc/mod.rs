@@ -1,7 +1,7 @@
 use crate::Leaf;
 
-use std::io::{Write, Result as IoResult};
 use bitvec::prelude::*;
+use std::io::{Result as IoResult, Write};
 
 pub mod video;
 

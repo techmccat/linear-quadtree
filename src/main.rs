@@ -1,13 +1,17 @@
-use std::{error::Error, fs::File, io::{self, BufReader, BufWriter, Read, Write, stdin, stdout}};
+use std::{
+    error::Error,
+    fs::File,
+    io::{self, stdin, stdout, BufReader, BufWriter, Read, Write},
+};
 
 use argh::FromArgs;
-use linear_quadtree::enc::{LinearQuadTree, video::VideoEncoder};
+use linear_quadtree::enc::{video::VideoEncoder, LinearQuadTree};
 
 #[derive(FromArgs)]
 /// Encode one or more frames using linear quadtrees
 struct Encode {
     #[argh(subcommand)]
-    subs: SubCommands
+    subs: SubCommands,
 }
 
 #[derive(FromArgs)]
@@ -44,20 +48,21 @@ struct Sequence {
     frames: Option<u32>,
 }
 
-fn main() -> Result<(), Box<dyn Error>>{
+fn main() -> Result<(), Box<dyn Error>> {
     let args: Encode = argh::from_env();
 
     match args.subs {
         SubCommands::Frame(s) => frame(s),
         SubCommands::Sequence(s) => sequence(s),
-    }.map_err(|e| e.into())
+    }
+    .map_err(|e| e.into())
 }
 
 fn match_input(i: String) -> Box<dyn Read> {
     match i.as_str() {
         // TODO: check if stdio is a tty
         "-" => Box::new(BufReader::new(stdin())),
-        _ => Box::new(BufReader::new(File::open(i).unwrap()))
+        _ => Box::new(BufReader::new(File::open(i).unwrap())),
     }
 }
 
@@ -65,7 +70,7 @@ fn match_output(i: String) -> Box<dyn Write> {
     match i.as_str() {
         // TODO: check if stdio is a tty
         "-" => Box::new(BufWriter::new(stdout())),
-        _ => Box::new(BufWriter::new(File::create(i).unwrap()))
+        _ => Box::new(BufWriter::new(File::create(i).unwrap())),
     }
 }
 
@@ -83,7 +88,7 @@ fn frame(args: Frame) -> io::Result<()> {
     Ok(())
 }
 
-fn sequence(args: Sequence)  -> io::Result<()> {
+fn sequence(args: Sequence) -> io::Result<()> {
     let mut input = match_input(args.input);
     let output = match_output(args.output);
 

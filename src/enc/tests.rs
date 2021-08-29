@@ -71,14 +71,22 @@ pub const BUF: [u8; 1024] = [
 ];
 
 // can't make this constant because stuff
-fn expected_leaves() -> [Leaf; 6] {[
-    Leaf::new(true, heapless::Vec::from_slice(&[1, 1]).unwrap()),
-    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 1]).unwrap()),
-    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 1]).unwrap()),
-    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 1]).unwrap()),
-    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 1]).unwrap()),
-    Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 3, 1]).unwrap()),
-]}
+fn expected_leaves() -> [Leaf; 6] {
+    [
+        Leaf::new(true, heapless::Vec::from_slice(&[1, 1]).unwrap()),
+        Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 1]).unwrap()),
+        Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 1]).unwrap()),
+        Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 1]).unwrap()),
+        Leaf::new(
+            true,
+            heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 1]).unwrap(),
+        ),
+        Leaf::new(
+            true,
+            heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 3, 1]).unwrap(),
+        ),
+    ]
+}
 
 #[rustfmt::skip]
 pub const EXPECTED_BYTES: &[u8] = &[
@@ -99,7 +107,10 @@ fn full() {
     let mut tree = LinearQuadTree::new();
     tree.parse_12864(&buf);
 
-    assert_eq!(tree.0, [Leaf::new(true, heapless::Vec::from_slice(&[]).unwrap())]);
+    assert_eq!(
+        tree.0,
+        [Leaf::new(true, heapless::Vec::from_slice(&[]).unwrap())]
+    );
 
     tree.store_packed(&mut out).unwrap();
     assert_eq!(out, [0])
@@ -113,7 +124,10 @@ fn empty() {
     let mut tree = LinearQuadTree::new();
     tree.parse_12864(&buf);
 
-    assert_eq!(tree.0, [Leaf::new(false, heapless::Vec::from_slice(&[]).unwrap())]);
+    assert_eq!(
+        tree.0,
+        [Leaf::new(false, heapless::Vec::from_slice(&[]).unwrap())]
+    );
 
     tree.store_packed(&mut out).unwrap();
     assert_eq!(out, [1])

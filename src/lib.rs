@@ -16,10 +16,7 @@ pub struct Leaf {
 
 impl Leaf {
     pub fn new(feature: bool, pos: heapless::Vec<u8, 7>) -> Self {
-        Self {
-            feature,
-            pos
-        }
+        Self { feature, pos }
     }
 
     pub fn depth(&self) -> usize {
