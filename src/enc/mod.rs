@@ -12,7 +12,7 @@ pub mod video;
 #[cfg(test)]
 pub mod tests;
 
-type BitVecU8 = BitVec<Msb0, u8>;
+type BitSliceU8 = BitSlice<Msb0, u8>;
 
 impl Leaf {
     fn write<W: std::io::Write>(&self, mut w: W) -> IoResult<usize> {
@@ -54,7 +54,8 @@ impl LinearQuadTree {
     }
 
     pub fn parse_12864(&mut self, buf: &[u8; 1024]) {
-        let f = Frame::new(BitVecU8::from_slice(buf).unwrap(), 128);
+        let buf = z_order(buf, 128);
+        let f = Frame::new(buf.view_bits(), 128);
         let mut parser = BulkParse::new(&mut self.0);
         parser.parse_12864(f)
     }
@@ -140,7 +141,8 @@ impl<'a> BulkParse<'a> {
         if f.uniform() {
             self.out.push(Leaf::new(f.color(), heapless::Vec::new()))
         } else {
-            let (left, right) = f.split_v();
+            let left = Frame::new(&f.buf[..4096], 64);
+            let right = Frame::new(&f.buf[4096..], 64);
             self.parse_frame(left, 0);
             self.parse_frame(right, 1);
         }
@@ -154,7 +156,7 @@ impl<'a> BulkParse<'a> {
         if f.uniform() {
             self.out.push(Leaf::new(f.color(), self.pos.clone()));
         } else {
-            let (tl, tr, bl, br) = f.split_four();
+            let [tl, tr, bl, br] = f.split_four();
             self.parse_frame(tl, 0);
             self.parse_frame(tr, 1);
             self.parse_frame(bl, 2);
@@ -183,13 +185,15 @@ fn compare_bytes(buf: &[u8]) -> bool {
     true
 }
 
-fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
-    if buf.len() >= 16 {
+fn compare_bits(buf: &BitSliceU8) -> bool {
+    let len = buf.len();
+
+    if len >= 16 {
         let bytes = buf.as_raw_slice();
         return compare_bytes(bytes);
     }
 
-    if buf.len() == 1 {
+    if len == 1 {
         return true;
     }
 
@@ -205,54 +209,67 @@ fn compare_bits(buf: &BitSlice<Msb0, u8>) -> bool {
     true
 }
 
-pub struct Frame {
+pub struct Frame<'a> {
     side: usize,
-    buf: BitVecU8,
+    buf: &'a BitSliceU8,
 }
 
-impl Frame {
-    pub fn new(buf: BitVecU8, side: usize) -> Self {
+impl<'a> Frame<'a> {
+    /// Assumes buffer is z-ordered
+    pub fn new(buf: &'a BitSliceU8, side: usize) -> Self {
         Self { side, buf }
     }
 
     pub fn uniform(&self) -> bool {
-        compare_bits(self.buf.as_ref())
+        compare_bits(self.buf)
     }
 
     pub fn color(&self) -> bool {
         self.buf[0]
     }
 
-    fn split_h(&self) -> (Frame, Frame) {
-        let half = self.buf.len() / 2;
-        let (top, bot) = (self.buf[0..half].to_bitvec(), self.buf[half..].to_bitvec());
-        (Self::new(top, self.side), Self::new(bot, self.side))
+    pub fn split_four(&self) -> [Frame; 4] {
+        let len = self.buf.len() / 4;
+        let side = self.side / 2;
+
+        [
+            Frame::new(&self.buf[..len], side),
+            Frame::new(&self.buf[len..2 * len], side),
+            Frame::new(&self.buf[2 * len..3 * len], side),
+            Frame::new(&self.buf[3 * len..4 * len], side),
+        ]
+    }
+}
+
+// 000 001 100 101  0,0 1,0 2,0 3,0
+// 010 011 110 111  0,1 1,1 2,1 3,1
+fn z_order(source: &[u8], width: usize) -> Vec<u8> {
+    let source = source.view_bits::<Msb0>();
+    let mut out = vec![0u8; source.len() / 8];
+    let out_bits = out.view_bits_mut::<Msb0>();
+
+    for (i, mut cell) in out_bits.iter_mut().enumerate() {
+        let x = odd_bits(i);
+        let y = even_bits(i);
+        let index = y * width + x;
+        *cell = source[index];
     }
 
-    fn split_v(&self) -> (Frame, Frame) {
-        let new_side = self.side / 2;
-        let new_cap = self.buf.len() / 2;
-        let (mut left, mut right) = (
-            BitVecU8::with_capacity(new_cap),
-            BitVecU8::with_capacity(new_cap),
-        );
+    out
+}
 
-        for i in 0..new_side {
-            let start = i * self.side;
-            let mid = start + new_side;
-            let end = start + self.side;
+fn even_bits(i: usize) -> usize {
+    odd_bits(i >> 1)
+}
 
-            left.extend_from_bitslice(&self.buf[start..mid]);
-            right.extend_from_bitslice(&self.buf[mid..end]);
-        }
+fn odd_bits(input: usize) -> usize {
+    let mut sum = 0;
+    let mut offset = 0;
 
-        (Self::new(left, new_side), Self::new(right, new_side))
+    while 1 << offset <= input {
+        sum |= (input & 1 << offset) >> (offset / 2);
+        offset += 2;
     }
 
-    pub fn split_four(&self) -> (Frame, Frame, Frame, Frame) {
-        let (top, bot) = self.split_h();
-        let (tl, tr) = top.split_v();
-        let (bl, br) = bot.split_v();
-        (tl, tr, bl, br)
-    }
+    sum
 }
