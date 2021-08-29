@@ -1,7 +1,11 @@
 use crate::Leaf;
 
 use bitvec::prelude::*;
-use std::io::{Result as IoResult, Write};
+use embedded_graphics::{prelude::Point, primitives::Rectangle};
+use std::{
+    io::{Result as IoResult, Write},
+    ops::Index,
+};
 
 pub mod video;
 
@@ -74,6 +78,48 @@ impl LinearQuadTree {
         }
 
         Ok(count)
+    }
+}
+
+impl Index<Point> for LinearQuadTree {
+    type Output = Leaf;
+
+    /// Returns the leaf contaning the provided point
+    fn index(&self, index: Point) -> &Self::Output {
+        let point = index.into();
+
+        let mut iter = self.0.iter().filter(|l| l.contains(&point));
+        iter.next().expect(&format!(
+            "Index out of range, image is 128x64 but point is {}x{}",
+            index.x, index.y
+        ))
+    }
+}
+
+impl Index<Rectangle> for LinearQuadTree {
+    type Output = [Leaf];
+
+    /// Returns all the leaves between the top left and bottom right of the triangle (z-order
+    /// curve)
+    fn index(&self, index: Rectangle) -> &Self::Output {
+        let Rectangle {
+            top_left: base,
+            size,
+        } = index;
+        let term = base + size;
+
+        let start = self
+            .0
+            .iter()
+            .take_while(|l| !l.contains(&base.into()))
+            .count();
+        let end = self
+            .0
+            .iter()
+            .take_while(|l| !l.contains(&term.into()))
+            .count();
+
+        &self.0[start..end]
     }
 }
 
