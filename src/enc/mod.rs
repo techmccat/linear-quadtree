@@ -41,6 +41,9 @@ impl Leaf {
     }
 }
 
+/// A quadtree stored as a contiguous vector of leaves.
+///
+/// It doesn't support inserting yet, building is done by calling the `parse_12864` method.
 #[derive(Default)]
 pub struct LinearQuadTree(Vec<Leaf>);
 
@@ -49,18 +52,42 @@ impl LinearQuadTree {
         Self(Vec::new())
     }
 
+    /// Creates a new `LinearQuadTree`, allocating space for `cap` leaves.
     pub fn with_capacity(cap: usize) -> Self {
         Self(Vec::with_capacity(cap))
     }
 
+    /// Populates the internal leaf store with a 128x64 bit framebuffer.
     pub fn parse_12864(&mut self, buf: &[u8; 1024]) {
         let mut z_curve: BitVec<Msb0, u8> = BitVec::with_capacity(buf.len() * 8);
-        z_order_2to1(buf, &mut z_curve, 128, 0, 0);
-        let f = Frame::new(z_curve.as_ref(), 128);
+        z_order_2to1(buf, &mut z_curve, 128);
+
         let mut parser = BulkParse::new(&mut self.0);
+
+        let f = Frame::new(z_curve.as_ref(), 128);
         parser.parse_12864(f)
     }
 
+    /// Stores the leaves as packed bytes into a writer.
+    ///
+    /// The packed format is as follows:  
+    /// `1 010 01 00`  
+    /// `^` 1  
+    /// `  ^^^` 2  
+    /// `      ^^^^^` 3
+    ///
+    /// 1: discriminant bit.
+    /// If set bits 1 through 3 are treated as depth of the node.
+    /// When not set depth is assumed to be 7  
+    ///
+    /// 2: depth.
+    /// If the discriminant bit is not set, bit 1 is padding and position starts at bit 2.   
+    ///
+    /// 3: position.
+    /// Groups of two bits that represent the position of the node in the quadtree.
+    ///
+    /// When the depth is less than or equal to 2, the leaf is represented as a single byte.
+    /// It otherwise takes up two bytes.
     pub fn store_packed<W: Write>(&self, mut w: W) -> IoResult<usize> {
         let yes = self.0.iter().filter(|l| l.feature);
         let no = self.0.iter().filter(|l| !l.feature);
@@ -210,7 +237,8 @@ fn compare_bits(buf: &BitSliceU8) -> bool {
     true
 }
 
-pub struct Frame<'a> {
+/// A wrapper for a slice representing a square
+struct Frame<'a> {
     side: usize,
     buf: &'a BitSliceU8,
 }
@@ -221,15 +249,18 @@ impl<'a> Frame<'a> {
         Self { side, buf }
     }
 
+    /// Checks if all the bits in the buffer are set or unset
     pub fn uniform(&self) -> bool {
         compare_bits(self.buf)
     }
 
+    /// Returns the first bit of the buffer
     pub fn color(&self) -> bool {
         self.buf[0]
     }
 
-    pub fn split_four(&self) -> [Frame; 4] {
+    /// Splits the frame into four frames.
+    pub fn split_four(self) -> [Frame<'a>; 4] {
         let len = self.buf.len() / 4;
         let side = self.side / 2;
 
@@ -242,14 +273,13 @@ impl<'a> Frame<'a> {
     }
 }
 
-fn z_order_2to1(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize, x: usize, y: usize) {
+// calls z_order on the two top squares
+fn z_order_2to1(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize) {
     width /= 2;
-    z_order(source, dest, width, x, y);
-    z_order(source, dest, width, x + width, y);
+    z_order(source, dest, width, 0, 0);
+    z_order(source, dest, width, width, 0);
 }
 
-// 000 001 100 101  0,0 1,0 2,0 3,0
-// 010 011 110 111  0,1 1,1 2,1 3,1
 fn z_order(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize, x: usize, y: usize) {
     if width == 1 {
         dest.push(source.view_bits::<Msb0>()[x + y * 128])
@@ -260,20 +290,4 @@ fn z_order(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize, x: usiz
         z_order(source, dest, width, x, y + width);
         z_order(source, dest, width, x + width, y + width);
     }
-}
-
-fn _even_bits(i: usize) -> usize {
-    _odd_bits(i >> 1)
-}
-
-fn _odd_bits(input: usize) -> usize {
-    let mut sum = 0;
-    let mut offset = 0;
-
-    while 1 << offset <= input {
-        sum |= (input & 1 << offset) >> (offset / 2);
-        offset += 2;
-    }
-
-    sum
 }
