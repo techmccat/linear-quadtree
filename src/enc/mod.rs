@@ -54,8 +54,9 @@ impl LinearQuadTree {
     }
 
     pub fn parse_12864(&mut self, buf: &[u8; 1024]) {
-        let buf = z_order(buf, 128);
-        let f = Frame::new(buf.view_bits(), 128);
+        let mut z_curve: BitVec<Msb0, u8> = BitVec::with_capacity(buf.len() * 8);
+        z_order_2to1(buf, &mut z_curve, 128, 0, 0);
+        let f = Frame::new(z_curve.as_ref(), 128);
         let mut parser = BulkParse::new(&mut self.0);
         parser.parse_12864(f)
     }
@@ -241,28 +242,31 @@ impl<'a> Frame<'a> {
     }
 }
 
+fn z_order_2to1(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize, x: usize, y: usize) {
+    width /= 2;
+    z_order(source, dest, width, x, y);
+    z_order(source, dest, width, x + width, y);
+}
+
 // 000 001 100 101  0,0 1,0 2,0 3,0
 // 010 011 110 111  0,1 1,1 2,1 3,1
-fn z_order(source: &[u8], width: usize) -> Vec<u8> {
-    let source = source.view_bits::<Msb0>();
-    let mut out = vec![0u8; source.len() / 8];
-    let out_bits = out.view_bits_mut::<Msb0>();
-
-    for (i, mut cell) in out_bits.iter_mut().enumerate() {
-        let x = odd_bits(i);
-        let y = even_bits(i);
-        let index = y * width + x;
-        *cell = source[index];
+fn z_order(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize, x: usize, y: usize) {
+    if width == 1 {
+        dest.push(source.view_bits::<Msb0>()[x + y * 128])
+    } else {
+        width /= 2;
+        z_order(source, dest, width, x, y);
+        z_order(source, dest, width, x + width, y);
+        z_order(source, dest, width, x, y + width);
+        z_order(source, dest, width, x + width, y + width);
     }
-
-    out
 }
 
-fn even_bits(i: usize) -> usize {
-    odd_bits(i >> 1)
+fn _even_bits(i: usize) -> usize {
+    _odd_bits(i >> 1)
 }
 
-fn odd_bits(input: usize) -> usize {
+fn _odd_bits(input: usize) -> usize {
     let mut sum = 0;
     let mut offset = 0;
 
