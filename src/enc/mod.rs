@@ -1,11 +1,7 @@
-use crate::Leaf;
+use crate::{Leaf, LeafData};
 
 use bitvec::prelude::*;
-use embedded_graphics::{prelude::Point, primitives::Rectangle};
-use std::{
-    io::{Result as IoResult, Write},
-    ops::Index,
-};
+use std::io::{Result as IoResult, Write};
 
 pub mod video;
 
@@ -20,24 +16,31 @@ impl Leaf {
         let mut data = [0u8; 2];
         let bits = data.view_bits_mut::<Msb0>();
 
-        if depth == 7 {
-            for (i, p) in self.pos.iter().enumerate() {
-                bits[2..][i * 2..=i * 2 + 1].store(*p);
-            }
-        } else {
-            bits[..1].store(1u8);
+        bits[..1].store(1u8);
+        if let LeafData::Feature(_) = self.data {
             bits[1..4].store(depth);
-
-            for (i, p) in self.pos.iter().enumerate() {
-                bits[4..][i * 2..=i * 2 + 1].store(*p)
-            }
-        }
-
-        if depth > 2 {
-            w.write(&data)
         } else {
-            w.write(&data[..1])
+            bits[1..4].store(6u8);
         }
+
+        for (i, p) in self.pos.iter().enumerate() {
+            bits[4..][i * 2..=i * 2 + 1].store(*p)
+        }
+
+        let mut written = 0;
+        if depth > 2 {
+            w.write_all(&data)?;
+            written += 2;
+        } else {
+            w.write_all(&data[..1])?;
+            written += 1;
+        }
+        if let LeafData::Bitmap(b) = self.data {
+            w.write_all(&b)?;
+            written += 2;
+        };
+
+        Ok(written)
     }
 }
 
@@ -89,8 +92,8 @@ impl LinearQuadTree {
     /// When the depth is less than or equal to 2, the leaf is represented as a single byte.
     /// It otherwise takes up two bytes.
     pub fn store_packed<W: Write>(&self, mut w: W) -> IoResult<usize> {
-        let yes = self.0.iter().filter(|l| l.feature);
-        let no = self.0.iter().filter(|l| !l.feature);
+        let yes = self.0.iter().filter(|l| l.feat_or_data(true));
+        let no = self.0.iter().filter(|l| l.feat_or_data(false));
 
         let mut count = 1;
 
@@ -110,50 +113,8 @@ impl LinearQuadTree {
     }
 }
 
-impl Index<Point> for LinearQuadTree {
-    type Output = Leaf;
-
-    /// Returns the leaf contaning the provided point
-    fn index(&self, index: Point) -> &Self::Output {
-        let point = index.into();
-
-        let mut iter = self.0.iter().filter(|l| l.contains(&point));
-        iter.next().expect(&format!(
-            "Index out of range, image is 128x64 but point is {}x{}",
-            index.x, index.y
-        ))
-    }
-}
-
-impl Index<Rectangle> for LinearQuadTree {
-    type Output = [Leaf];
-
-    /// Returns all the leaves between the top left and bottom right of the triangle (z-order
-    /// curve)
-    fn index(&self, index: Rectangle) -> &Self::Output {
-        let Rectangle {
-            top_left: base,
-            size,
-        } = index;
-        let term = base + size;
-
-        let start = self
-            .0
-            .iter()
-            .take_while(|l| !l.contains(&base.into()))
-            .count();
-        let end = self
-            .0
-            .iter()
-            .take_while(|l| !l.contains(&term.into()))
-            .count();
-
-        &self.0[start..end]
-    }
-}
-
 struct BulkParse<'a> {
-    pos: heapless::Vec<u8, 7>,
+    pos: heapless::Vec<u8, 5>,
     out: &'a mut Vec<Leaf>,
 }
 
@@ -167,7 +128,10 @@ impl<'a> BulkParse<'a> {
 
     pub fn parse_12864(&mut self, f: Frame) {
         if f.uniform() {
-            self.out.push(Leaf::new(f.color(), heapless::Vec::new()))
+            self.out.push(Leaf::new(
+                LeafData::Feature(f.color()),
+                heapless::Vec::new(),
+            ))
         } else {
             let left = Frame::new(&f.buf[..4096], 64);
             let right = Frame::new(&f.buf[4096..], 64);
@@ -182,13 +146,26 @@ impl<'a> BulkParse<'a> {
             .expect("Depth exceeded maximum available");
 
         if f.uniform() {
-            self.out.push(Leaf::new(f.color(), self.pos.clone()));
-        } else {
+            self.out
+                .push(Leaf::new(LeafData::Feature(f.color()), self.pos.clone()));
+        } else if self.pos.len() < 5 {
             let [tl, tr, bl, br] = f.split_four();
             self.parse_frame(tl, 0);
             self.parse_frame(tr, 1);
             self.parse_frame(bl, 2);
             self.parse_frame(br, 3);
+        } else {
+            // convert from z-curve and store after the leaf
+            let mut bitmap = [0u8; 2];
+            bitmap[0] = f.buf[0..=1].load::<u8>() << 6
+                | f.buf[4..=5].load::<u8>() << 4
+                | f.buf[2..=3].load::<u8>() << 2
+                | f.buf[6..=7].load::<u8>();
+            bitmap[1] = f.buf[8..=9].load::<u8>() << 6
+                | f.buf[12..=13].load::<u8>() << 4
+                | f.buf[10..=11].load::<u8>() << 2
+                | f.buf[14..=15].load::<u8>();
+            self.out.push(Leaf::new(LeafData::Bitmap(bitmap), self.pos.clone()))
         }
 
         self.pos.pop();

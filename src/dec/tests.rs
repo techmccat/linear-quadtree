@@ -1,5 +1,5 @@
 use super::LeafParser;
-use crate::dec::Leaf;
+use crate::{dec::Leaf, LeafData};
 
 use embedded_graphics::{mock_display, prelude::ImageDrawable, Drawable};
 use heapless::Vec;
@@ -16,35 +16,31 @@ fn parse() {
         0b1_101_01_11,
         0b11_11_01_00,
         0b1_110_01_11,
-        0b11_11_11_01,
-        0b00_01_11_11,
-        0b11_11_11_01,
+        0b11_11_11_00,
+        0xf0,
+        0x0f,
     ];
 
     let expect = [
         Leaf {
             pos: Vec::from_slice(&[1, 1]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
             pos: Vec::from_slice(&[1, 3, 1]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
             pos: Vec::from_slice(&[1, 3, 3, 1]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
             pos: Vec::from_slice(&[1, 3, 3, 3, 1]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
-            pos: Vec::from_slice(&[1, 3, 3, 3, 3, 1]).unwrap(),
-            feature: true,
-        },
-        Leaf {
-            pos: Vec::from_slice(&[1, 3, 3, 3, 3, 3, 1]).unwrap(),
-            feature: true,
+            pos: Vec::from_slice(&[1, 3, 3, 3, 3]).unwrap(),
+            data: LeafData::Bitmap([0xf0, 0x0f]),
         },
     ];
 
@@ -60,7 +56,7 @@ fn parse() {
 fn draw_full() {
     let leaf = Leaf {
         pos: Vec::from_slice(&[0]).unwrap(),
-        feature: true,
+        data: LeafData::Feature(true),
     };
     let mut display = mock_display::MockDisplay::new();
 
@@ -133,36 +129,32 @@ fn draw_stairs() {
         "        ########################################################",
         "        ########################################################",
         "        ########################################################",
-        "    ############################################################",
-        "    ############################################################",
-        "  ##############################################################",
-        " ###############################################################",
+        "....############################################################",
+        "....############################################################",
+        "..##############################################################",
+        ".###############################################################",
     ];
 
     let leaves = [
         Leaf {
             pos: Vec::from_slice(&[0, 3]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
             pos: Vec::from_slice(&[0, 2, 3]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
             pos: Vec::from_slice(&[0, 2, 2, 3]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
             pos: Vec::from_slice(&[0, 2, 2, 2, 3]).unwrap(),
-            feature: true,
+            data: LeafData::Feature(true),
         },
         Leaf {
-            pos: Vec::from_slice(&[0, 2, 2, 2, 2, 3]).unwrap(),
-            feature: true,
-        },
-        Leaf {
-            pos: Vec::from_slice(&[0, 2, 2, 2, 2, 2, 3]).unwrap(),
-            feature: true,
+            pos: Vec::from_slice(&[0, 2, 2, 2, 2]).unwrap(),
+            data: LeafData::Bitmap([0, 0b0011_0111]),
         },
     ];
 
@@ -198,9 +190,9 @@ fn parse_draw_stairs() {
         0b1_101_00_10,
         0b10_10_11_00,
         0b1_110_00_10,
-        0b10_10_10_11,
-        0b01_00_10_10,
-        0b10_10_10_11,
+        0b10_10_10_00,
+        0,
+        0b0011_0111
     ];
     let mut display = mock_display::MockDisplay::new();
     display.set_allow_overdraw(true);

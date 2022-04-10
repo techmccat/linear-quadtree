@@ -1,18 +1,19 @@
-use crate::Leaf;
+use core::{convert::TryInto, cmp};
+
+use crate::{Leaf, LeafData};
 
 use bitvec::prelude::*;
-use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, primitives::Rectangle};
+use embedded_graphics::{
+    image::{Image, ImageRaw, ImageDrawable},
+    pixelcolor::BinaryColor,
+    prelude::*,
+    primitives::Rectangle,
+};
 
 pub mod video;
 
 #[cfg(test)]
 mod tests;
-
-impl Leaf {
-    pub fn feature(&self) -> BinaryColor {
-        self.feature.into()
-    }
-}
 
 impl Dimensions for Leaf {
     fn bounding_box(&self) -> Rectangle {
@@ -49,16 +50,31 @@ impl Drawable for Leaf {
     where
         DT: DrawTarget<Color = Self::Color>,
     {
-        let Rectangle {
-            top_left: point,
-            size,
-        } = self.bounding_box();
-        let rect = if self.pos.len() == 0 {
-            Rectangle::new(point, size).intersection(&target.bounding_box())
-        } else {
-            Rectangle::new(point, size)
-        };
-        target.fill_solid(&rect, self.feature.into())
+        match self.data {
+            LeafData::Feature(f) => target.fill_solid(&self.bounding_box(), f.into()),
+            LeafData::Bitmap(b) => {
+                let data = [b[0] & 0xf0, b[0] << 4, b[1] & 0xf0, b[1] << 4];
+                let raw = ImageRaw::<BinaryColor>::new(&data, 4);
+                let image = Image::new(&raw, self.bounding_box().top_left);
+                image.draw(target)
+            }
+        }
+    }
+}
+
+impl Leaf {
+    fn draw_sub_image<DT>(&self, target: &mut DT, area: &Rectangle) -> Result<(), DT::Error>
+    where
+        DT: DrawTarget<Color = <Self as Drawable>::Color>,
+    {
+        match self.data {
+            LeafData::Feature(f) => target.fill_solid(area, f.into()),
+            LeafData::Bitmap(b) => {
+                let data = [b[0] & 0xf0, b[0] << 4, b[1] & 0xf0, b[1] << 4];
+                let raw = ImageRaw::<BinaryColor>::new(&data, 4);
+                raw.draw_sub_image(target, area)
+            }
+        }
     }
 }
 
@@ -142,7 +158,7 @@ impl<'a> Iterator for LeafParserIter<'a> {
                 return None;
             };
 
-            for i in 3..=(if depth < 7 { depth } else { 6 }) as usize {
+            for i in 3..=cmp::min(depth, 5) as usize {
                 let bitpos = (i - 3) * 2;
                 let side = next[bitpos..=bitpos + 1].load();
                 pos.push(side).expect("Exceeded max depth");
@@ -151,10 +167,18 @@ impl<'a> Iterator for LeafParserIter<'a> {
 
         self.index += 1;
 
-        Some(Self::Item {
-            pos,
-            feature: self.feature,
-        })
+        let data;
+        if depth < 6 {
+            data = LeafData::Feature(self.feature)
+        } else {
+            if self.buf.len() < self.index + 2 {
+                return None;
+            }
+            data = LeafData::Bitmap(self.buf[self.index..self.index + 2].try_into().unwrap());
+            self.index += 2;
+        };
+
+        Some(Self::Item { pos, data })
     }
 }
 
@@ -180,7 +204,6 @@ impl ImageDrawable for LeafParser<'_> {
         Ok(())
     }
 
-    // TODO: z-curves are a thing, I should use them
     fn draw_sub_image<DT>(&self, target: &mut DT, area: &Rectangle) -> Result<(), DT::Error>
     where
         DT: DrawTarget<Color = Self::Color>,
@@ -189,7 +212,7 @@ impl ImageDrawable for LeafParser<'_> {
             let rect = leaf.bounding_box().intersection(area);
 
             if !rect.is_zero_sized() {
-                target.fill_solid(&rect, leaf.feature.into())?
+                leaf.draw_sub_image(target, &rect)?;
             }
         }
         Ok(())

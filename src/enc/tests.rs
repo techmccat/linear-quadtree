@@ -71,19 +71,15 @@ pub const BUF: [u8; 1024] = [
 ];
 
 // can't make this constant because stuff
-fn expected_leaves() -> [Leaf; 6] {
+fn expected_leaves() -> [Leaf; 5] {
     [
-        Leaf::new(true, heapless::Vec::from_slice(&[1, 1]).unwrap()),
-        Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 1]).unwrap()),
-        Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 1]).unwrap()),
-        Leaf::new(true, heapless::Vec::from_slice(&[1, 3, 3, 3, 1]).unwrap()),
+        Leaf::new(LeafData::Feature(true), heapless::Vec::from_slice(&[1, 1]).unwrap()),
+        Leaf::new(LeafData::Feature(true), heapless::Vec::from_slice(&[1, 3, 1]).unwrap()),
+        Leaf::new(LeafData::Feature(true), heapless::Vec::from_slice(&[1, 3, 3, 1]).unwrap()),
+        Leaf::new(LeafData::Feature(true), heapless::Vec::from_slice(&[1, 3, 3, 3, 1]).unwrap()),
         Leaf::new(
-            true,
-            heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 1]).unwrap(),
-        ),
-        Leaf::new(
-            true,
-            heapless::Vec::from_slice(&[1, 3, 3, 3, 3, 3, 1]).unwrap(),
+            LeafData::Bitmap([0b0011_0011, 0b0001_0000]),
+            heapless::Vec::from_slice(&[1, 3, 3, 3, 3]).unwrap(),
         ),
     ]
 }
@@ -95,8 +91,8 @@ pub const EXPECTED_BYTES: &[u8] = &[
     0b1_011_01_11, 0b01_00_00_00,
     0b1_100_01_11, 0b11_01_00_00,
     0b1_101_01_11, 0b11_11_01_00,
-    0b1_110_01_11, 0b11_11_11_01,
-    0b00_01_11_11, 0b11_11_11_01,
+    0b1_110_01_11, 0b11_11_11_00,
+    0b0011_0011,   0b0001_0000
 ];
 
 #[test]
@@ -109,7 +105,7 @@ fn full() {
 
     assert_eq!(
         tree.0,
-        [Leaf::new(true, heapless::Vec::from_slice(&[]).unwrap())]
+        [Leaf::new(LeafData::Feature(true), heapless::Vec::from_slice(&[]).unwrap())]
     );
 
     tree.store_packed(&mut out).unwrap();
@@ -126,7 +122,7 @@ fn empty() {
 
     assert_eq!(
         tree.0,
-        [Leaf::new(false, heapless::Vec::from_slice(&[]).unwrap())]
+        [Leaf::new(LeafData::Feature(false), heapless::Vec::from_slice(&[]).unwrap())]
     );
 
     tree.store_packed(&mut out).unwrap();
@@ -140,7 +136,7 @@ fn stairs() {
     let mut tree = LinearQuadTree::new();
     tree.parse_12864(&BUF);
 
-    let active: Vec<_> = tree.0.clone().into_iter().filter(|l| l.feature).collect();
+    let active: Vec<_> = tree.0.clone().into_iter().filter(|l| l.feat_or_data(true)).collect();
     assert_eq!(active, expected_leaves());
 
     tree.store_packed(&mut out).unwrap();
