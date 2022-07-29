@@ -20,7 +20,7 @@ const HEIGHT: u32 = 64;
 
 #[derive(Default)]
 struct DumpableDisplay {
-    buf: BitArr!(for 8192, in Msb0, u8),
+    buf: BitArr!(for 8192, in u8, Msb0),
 }
 
 impl OriginDimensions for DumpableDisplay {

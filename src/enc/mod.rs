@@ -8,7 +8,8 @@ pub mod video;
 #[cfg(test)]
 pub mod tests;
 
-type BitSliceU8 = BitSlice<Msb0, u8>;
+type BitSliceU8 = BitSlice<u8, Msb0>;
+type BitVecU8 = BitVec<u8, Msb0>;
 
 impl Leaf {
     fn write<W: std::io::Write>(&self, mut w: W) -> IoResult<usize> {
@@ -62,7 +63,7 @@ impl LinearQuadTree {
 
     /// Populates the internal leaf store with a 128x64 bit framebuffer.
     pub fn parse_12864(&mut self, buf: &[u8; 1024]) {
-        let mut z_curve: BitVec<Msb0, u8> = BitVec::with_capacity(buf.len() * 8);
+        let mut z_curve: BitVecU8 = BitVec::with_capacity(buf.len() * 8);
         z_order_2to1(buf, &mut z_curve, 128);
 
         let mut parser = BulkParse::new(&mut self.0);
@@ -179,7 +180,7 @@ fn compare_bytes(buf: &[u8]) -> bool {
         return false;
     }
 
-    for b in buf {
+    for b in buf.iter().skip(1) {
         if *b != prev {
             return false;
         } else {
@@ -194,7 +195,7 @@ fn compare_bits(buf: &BitSliceU8) -> bool {
     let len = buf.len();
 
     if len >= 16 {
-        let bytes = buf.as_raw_slice();
+        let (_, bytes, _) = buf.domain().region().unwrap();
         return compare_bytes(bytes);
     }
 
@@ -251,13 +252,13 @@ impl<'a> Frame<'a> {
 }
 
 // calls z_order on the two top squares
-fn z_order_2to1(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize) {
+fn z_order_2to1(source: &[u8], dest: &mut BitVecU8, mut width: usize) {
     width /= 2;
     z_order(source, dest, width, 0, 0);
     z_order(source, dest, width, width, 0);
 }
 
-fn z_order(source: &[u8], dest: &mut BitVec<Msb0, u8>, mut width: usize, x: usize, y: usize) {
+fn z_order(source: &[u8], dest: &mut BitVecU8, mut width: usize, x: usize, y: usize) {
     if width == 1 {
         dest.push(source.view_bits::<Msb0>()[x + y * 128])
     } else {

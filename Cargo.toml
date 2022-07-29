@@ -13,8 +13,8 @@ dec = ["embedded-graphics"]
 std = ["argh", "bitvec/std"]
 
 [dependencies]
-argh = { version = "0.1.5", optional = true }
-bitvec = { version = "0.22.3", default-features = false }
+argh = { version = "0.1", optional = true }
+bitvec = { version = "1", default-features = false }
 embedded-graphics = { version = "0.7.1", optional = true }
 heapless = "0.7.5"
 
