@@ -5,7 +5,7 @@ use std::{
 };
 
 use argh::FromArgs;
-use linear_quadtree::enc::{video::VideoEncoder, LinearQuadTree};
+use linear_quadtree::enc::{video::VideoEncoder, QuadTree};
 
 #[derive(FromArgs)]
 /// Encode one or more frames using linear quadtrees
@@ -81,8 +81,7 @@ fn frame(args: Frame) -> io::Result<()> {
     let mut buf = [0; 1024];
     input.read_exact(&mut buf)?;
 
-    let mut enc = LinearQuadTree::new();
-    enc.parse_12864(&buf);
+    let enc = QuadTree::from_128x64(&buf);
     enc.store_packed(output)?;
 
     Ok(())

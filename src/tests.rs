@@ -11,7 +11,7 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay};
 
 use crate::dec::LeafParser;
-use crate::enc::LinearQuadTree;
+use crate::enc::QuadTree;
 
 use crate::enc::tests::{BUF, EXPECTED_BYTES};
 
@@ -68,8 +68,7 @@ impl DrawTarget for DumpableDisplay {
 fn enc_then_draw() {
     let mut out = Vec::with_capacity(12);
 
-    let mut tree = LinearQuadTree::new();
-    tree.parse_12864(&BUF);
+    let tree = QuadTree::from_128x64(&BUF);
     tree.store_packed(&mut out).unwrap();
 
     // really just a sanity check
@@ -97,8 +96,7 @@ fn bad_apple() -> std::io::Result<()> {
         let mut file = File::open(&path)?;
         file.read_exact(&mut read_buf)?;
 
-        let mut tree = LinearQuadTree::new();
-        tree.parse_12864(&read_buf);
+        let tree = QuadTree::from_128x64(&read_buf);
         tree.store_packed(&mut leaf_buf).unwrap();
 
         let dec = LeafParser::new(&leaf_buf).unwrap();

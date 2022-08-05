@@ -16,7 +16,7 @@ pub struct Leaf {
     pos: Vec<u8, 5>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum LeafData {
     Feature(bool),
     Bitmap([u8; 2])

@@ -100,11 +100,10 @@ fn full() {
     let buf = [u8::MAX; 128 * 64 / 8];
     let mut out = Vec::with_capacity(1);
 
-    let mut tree = LinearQuadTree::new();
-    tree.parse_12864(&buf);
+    let tree = QuadTree::from_128x64(&buf);
 
     assert_eq!(
-        tree.0,
+        tree.iter().collect::<Vec<_>>(),
         [Leaf::new(LeafData::Feature(true), heapless::Vec::from_slice(&[]).unwrap())]
     );
 
@@ -117,11 +116,10 @@ fn empty() {
     let buf = [0; 128 * 64 / 8];
     let mut out = Vec::new();
 
-    let mut tree = LinearQuadTree::new();
-    tree.parse_12864(&buf);
+    let tree = QuadTree::from_128x64(&buf);
 
     assert_eq!(
-        tree.0,
+        tree.iter().collect::<Vec<_>>(),
         [Leaf::new(LeafData::Feature(false), heapless::Vec::from_slice(&[]).unwrap())]
     );
 
@@ -133,10 +131,9 @@ fn empty() {
 fn stairs() {
     let mut out = Vec::with_capacity(EXPECTED_BYTES.len());
 
-    let mut tree = LinearQuadTree::new();
-    tree.parse_12864(&BUF);
+    let tree = QuadTree::from_128x64(&BUF);
 
-    let active: Vec<_> = tree.0.clone().into_iter().filter(|l| l.feat_or_data(true)).collect();
+    let active: Vec<_> = tree.iter().filter(|l| l.feat_or_data(true)).collect();
     assert_eq!(active, expected_leaves());
 
     tree.store_packed(&mut out).unwrap();

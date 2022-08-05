@@ -10,6 +10,205 @@ pub mod tests;
 
 type BitSliceU8 = BitSlice<u8, Msb0>;
 type BitVecU8 = BitVec<u8, Msb0>;
+type Position = heapless::Vec<u8, 7>;
+
+#[derive(Clone, Debug)]
+pub enum Node {
+    Empty,
+    Leaf(LeafData),
+    Branch(Box<[Node; 4]>),
+}
+
+impl Node {
+    pub fn empty_branch() -> Self {
+        // Box isn't Copy :)
+        Self::Branch(Box::new([
+            Node::Empty,
+            Node::Empty,
+            Node::Empty,
+            Node::Empty,
+        ]))
+    }
+
+    /// Get a reference to this node's child nodes, if there are any.
+    pub fn children(&self) -> Option<&[Self; 4]> {
+        if let Node::Branch(branches) = self {
+            Some(branches)
+        } else {
+            None
+        }
+    }
+
+    /// Get a mutable reference to this node's child nodes, if there are any.
+    pub fn children_mut(&mut self) -> Option<&mut [Self; 4]> {
+        if let Node::Branch(branches) = self {
+            Some(branches)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the current value, leaving Node::Empty in its place.
+    pub fn take(&mut self) -> Self {
+        std::mem::replace(self, Self::Empty)
+    }
+
+    /// Parse a monochrome bitmap into Self.
+    fn from_sector(sec: Frame) -> Self {
+        if sec.uniform() {
+            Self::Leaf(LeafData::Feature(sec.color()))
+        } else if sec.side > 4 {
+            let [tl, tr, bl, br] = sec.split_four();
+            Self::Branch(Box::new([
+                Self::from_sector(tl),
+                Self::from_sector(tr),
+                Self::from_sector(bl),
+                Self::from_sector(br),
+            ]))
+        } else {
+            // convert from z-curve and store after the leaf
+            let mut bitmap = [0u8; 2];
+            bitmap[0] = sec.buf[0..=1].load::<u8>() << 6
+                | sec.buf[4..=5].load::<u8>() << 4
+                | sec.buf[2..=3].load::<u8>() << 2
+                | sec.buf[6..=7].load::<u8>();
+            bitmap[1] = sec.buf[8..=9].load::<u8>() << 6
+                | sec.buf[12..=13].load::<u8>() << 4
+                | sec.buf[10..=11].load::<u8>() << 2
+                | sec.buf[14..=15].load::<u8>();
+            Self::Leaf(LeafData::Bitmap(bitmap))
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct QuadTree {
+    head: Node,
+}
+
+impl QuadTree {
+    pub fn new() -> Self {
+        Self { head: Node::Empty }
+    }
+
+    /// Builds a new tree from a 128x64 monochrome framebuffer.
+    pub fn from_128x64(buf: &[u8; 1024]) -> Self {
+        let mut z_curve: BitVecU8 = BitVec::with_capacity(buf.len() * 8);
+        z_order_2to1(buf, &mut z_curve, 128);
+
+        if Frame::new(&z_curve, 128).uniform() {
+            return QuadTree {
+                head: Node::Leaf(LeafData::Feature(buf[0] == 255))
+            }
+        }
+
+        let mut out = Self {
+            head: Node::empty_branch(),
+        };
+        let [left, right, _, _] = out.head.children_mut().unwrap();
+
+        *left = Node::from_sector(Frame::new(&z_curve[..4096], 64));
+        *right = Node::from_sector(Frame::new(&z_curve[4096..], 64));
+
+        out
+    }
+
+    pub fn iter(&self) -> QuadTreeIterator {
+        let mut stack = Vec::with_capacity(5 * 4);
+        stack.push(&self.head);
+        QuadTreeIterator {
+            stack,
+            position: Default::default(),
+        }
+    }
+
+    /// Stores the leaves as packed bytes into a writer.
+    ///
+    /// The packed format is as follows:  
+    /// `1 010 01 00`  
+    /// `^` 1  
+    /// `  ^^^` 2  
+    /// `      ^^^^^` 3
+    ///
+    /// 1: discriminant bit.
+    /// If set bits 1 through 3 are treated as depth of the node.
+    /// When not set depth is assumed to be 7  
+    ///
+    /// 2: depth.
+    /// If the discriminant bit is not set, bit 1 is padding and position starts at bit 2.   
+    ///
+    /// 3: position.
+    /// Groups of two bits that represent the position of the node in the quadtree.
+    ///
+    /// When the depth is less than or equal to 2, the leaf is represented as a single byte.
+    /// It otherwise takes up two bytes.
+    ///
+    /// When depth is more than 5, the 4x4 bitmap is stored to save space.
+    pub fn store_packed<W: Write>(&self, mut w: W) -> IoResult<usize> {
+        let yes = self.iter().filter(|l| l.feat_or_data(true));
+        let no = self.iter().filter(|l| l.feat_or_data(false));
+
+        let mut count = 1;
+
+        if yes.clone().count() < no.clone().count() {
+            w.write_all(&[1])?;
+            for leaf in yes {
+                count += leaf.write(&mut w)?;
+            }
+        } else {
+            w.write_all(&[0])?;
+            for leaf in no {
+                count += leaf.write(&mut w)?;
+            }
+        }
+
+        Ok(count)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct QuadTreeIterator<'a> {
+    stack: Vec<&'a Node>,
+    position: Position,
+}
+
+impl QuadTreeIterator<'_> {
+    fn leaf_met(&mut self) {
+        self.position.last_mut().map(|pos| *pos += 1);
+        if self.position.last() == Some(&4) {
+            self.position.pop();
+            self.leaf_met();
+        }
+    }
+}
+
+impl Iterator for QuadTreeIterator<'_> {
+    type Item = Leaf;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(node) = self.stack.pop() {
+            if let Some(nodes) = node.children() {
+                // println!("Current depth: {}", self.position.len());
+                self.position
+                    .push(0)
+                    .expect("Max depth exceeded during traversal");
+                for node in nodes.into_iter().rev() {
+                    self.stack.push(node);
+                }
+            } else {
+                let pos = self.position.clone();
+                self.leaf_met();
+                if let Node::Leaf(feat) = node {
+                    return Some(Leaf::new(
+                        *feat,
+                        heapless::Vec::from_slice(&pos.get(..5).unwrap_or(&pos)).unwrap(),
+                    ));
+                }
+            }
+        }
+        None
+    }
+}
 
 impl Leaf {
     fn write<W: std::io::Write>(&self, mut w: W) -> IoResult<usize> {
@@ -42,134 +241,6 @@ impl Leaf {
         };
 
         Ok(written)
-    }
-}
-
-/// A quadtree stored as a contiguous vector of leaves.
-///
-/// It doesn't support inserting yet, building is done by calling the `parse_12864` method.
-#[derive(Default)]
-pub struct LinearQuadTree(Vec<Leaf>);
-
-impl LinearQuadTree {
-    pub const fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    /// Creates a new `LinearQuadTree`, allocating space for `cap` leaves.
-    pub fn with_capacity(cap: usize) -> Self {
-        Self(Vec::with_capacity(cap))
-    }
-
-    /// Populates the internal leaf store with a 128x64 bit framebuffer.
-    pub fn parse_12864(&mut self, buf: &[u8; 1024]) {
-        let mut z_curve: BitVecU8 = BitVec::with_capacity(buf.len() * 8);
-        z_order_2to1(buf, &mut z_curve, 128);
-
-        let mut parser = BulkParse::new(&mut self.0);
-
-        let f = Frame::new(z_curve.as_ref(), 128);
-        parser.parse_12864(f)
-    }
-
-    /// Stores the leaves as packed bytes into a writer.
-    ///
-    /// The packed format is as follows:  
-    /// `1 010 01 00`  
-    /// `^` 1  
-    /// `  ^^^` 2  
-    /// `      ^^^^^` 3
-    ///
-    /// 1: discriminant bit.
-    /// If set bits 1 through 3 are treated as depth of the node.
-    /// When not set depth is assumed to be 7  
-    ///
-    /// 2: depth.
-    /// If the discriminant bit is not set, bit 1 is padding and position starts at bit 2.   
-    ///
-    /// 3: position.
-    /// Groups of two bits that represent the position of the node in the quadtree.
-    ///
-    /// When the depth is less than or equal to 2, the leaf is represented as a single byte.
-    /// It otherwise takes up two bytes.
-    pub fn store_packed<W: Write>(&self, mut w: W) -> IoResult<usize> {
-        let yes = self.0.iter().filter(|l| l.feat_or_data(true));
-        let no = self.0.iter().filter(|l| l.feat_or_data(false));
-
-        let mut count = 1;
-
-        if yes.clone().count() < no.clone().count() {
-            w.write_all(&[1])?;
-            for leaf in yes {
-                count += leaf.write(&mut w)?;
-            }
-        } else {
-            w.write_all(&[0])?;
-            for leaf in no {
-                count += leaf.write(&mut w)?;
-            }
-        }
-
-        Ok(count)
-    }
-}
-
-struct BulkParse<'a> {
-    pos: heapless::Vec<u8, 5>,
-    out: &'a mut Vec<Leaf>,
-}
-
-impl<'a> BulkParse<'a> {
-    pub fn new(out: &'a mut Vec<Leaf>) -> Self {
-        Self {
-            pos: Default::default(),
-            out,
-        }
-    }
-
-    pub fn parse_12864(&mut self, f: Frame) {
-        if f.uniform() {
-            self.out.push(Leaf::new(
-                LeafData::Feature(f.color()),
-                heapless::Vec::new(),
-            ))
-        } else {
-            let left = Frame::new(&f.buf[..4096], 64);
-            let right = Frame::new(&f.buf[4096..], 64);
-            self.parse_frame(left, 0);
-            self.parse_frame(right, 1);
-        }
-    }
-
-    pub fn parse_frame(&mut self, f: Frame, pos: u8) {
-        self.pos
-            .push(pos)
-            .expect("Depth exceeded maximum available");
-
-        if f.uniform() {
-            self.out
-                .push(Leaf::new(LeafData::Feature(f.color()), self.pos.clone()));
-        } else if self.pos.len() < 5 {
-            let [tl, tr, bl, br] = f.split_four();
-            self.parse_frame(tl, 0);
-            self.parse_frame(tr, 1);
-            self.parse_frame(bl, 2);
-            self.parse_frame(br, 3);
-        } else {
-            // convert from z-curve and store after the leaf
-            let mut bitmap = [0u8; 2];
-            bitmap[0] = f.buf[0..=1].load::<u8>() << 6
-                | f.buf[4..=5].load::<u8>() << 4
-                | f.buf[2..=3].load::<u8>() << 2
-                | f.buf[6..=7].load::<u8>();
-            bitmap[1] = f.buf[8..=9].load::<u8>() << 6
-                | f.buf[12..=13].load::<u8>() << 4
-                | f.buf[10..=11].load::<u8>() << 2
-                | f.buf[14..=15].load::<u8>();
-            self.out.push(Leaf::new(LeafData::Bitmap(bitmap), self.pos.clone()))
-        }
-
-        self.pos.pop();
     }
 }
 

@@ -1,4 +1,4 @@
-use super::LinearQuadTree;
+use super::QuadTree;
 
 use std::{
     cmp::min,
@@ -23,9 +23,9 @@ impl<W: Write> VideoEncoder<W> {
     }
 
     fn encode_buf(&mut self) -> IoResult<()> {
-        let mut encoder = LinearQuadTree::new();
-        encoder.parse_12864(&self.buf);
-        let len = encoder.store_packed(&mut self.leaf_buf)?;
+        let tree = QuadTree::from_128x64(&self.buf);
+
+        let len = tree.store_packed(&mut self.leaf_buf)?;
         self.cursor = 0;
 
         self.writer.write_all(&(len as u16).to_le_bytes())?;
