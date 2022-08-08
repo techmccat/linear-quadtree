@@ -1,10 +1,10 @@
 [package]
 edition = "2018"
-name = "linear-quadtree"
+name = "monochrome-quadtree"
 version = "0.4.0"
 
 [[bin]]
-name = "linear-quadtree"
+name = "monochrome-quadtree"
 
 [features]
 default = ["enc", "dec"]
