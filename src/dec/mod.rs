@@ -1,7 +1,6 @@
-use core::{convert::TryInto, cmp};
+use crate::{Leaf, LeafData, FrameMeta};
 
-use crate::{Leaf, LeafData};
-
+use core::{convert::{TryInto, TryFrom}, cmp};
 use bitvec::prelude::*;
 use embedded_graphics::{
     image::{Image, ImageRaw, ImageDrawable},
@@ -17,26 +16,16 @@ mod tests;
 
 impl Dimensions for Leaf {
     fn bounding_box(&self) -> Rectangle {
-        let mut s = 128;
+        let es = 1 << (7 - self.depth());
         let mut x = 0;
         let mut y = 0;
 
-        for p in &self.pos {
-            s /= 2;
-            match p {
-                0 => (),
-                1 => x += s,
-                2 => y += s,
-                3 => {
-                    x += s;
-                    y += s
-                }
-                _ => (),
-            }
+        for (i, p) in self.pos.iter().enumerate() {
+            x |= (p & 1) << 6 - i;
+            y |= (p >> 1) << 6 - i;
         }
-
         let point = Point::new(x as i32, y as i32);
-        let size = Size::new_equal(s);
+        let size = Size::new_equal(es);
 
         Rectangle::new(point, size)
     }
@@ -86,19 +75,19 @@ pub enum ParseError {
 #[derive(Debug, PartialEq)]
 pub struct LeafParser<'a> {
     buf: &'a [u8],
-    feature: bool,
+    meta: FrameMeta
 }
 
 impl<'a> LeafParser<'a> {
     pub fn new(buf: &'a [u8]) -> Result<Self, ParseError> {
-        match buf.get(0) {
-            Some(1) => Ok(Self { buf, feature: true }),
-            Some(0) => Ok(Self {
-                buf,
-                feature: false,
-            }),
+        match buf.get(0).map(|meta| FrameMeta::try_from(*meta)) {
+            Some(Ok(meta)) => Ok(Self { buf: &buf[1..], meta }),
             _ => Err(ParseError::InvalidHeader),
         }
+    }
+
+    pub fn flush_after(&self) -> bool {
+        self.meta.display
     }
 }
 
@@ -108,9 +97,9 @@ impl<'a> IntoIterator for &'a LeafParser<'a> {
 
     fn into_iter(self) -> Self::IntoIter {
         LeafParserIter {
-            buf: &self.buf[1..],
+            buf: self.buf,
             index: 0,
-            feature: self.feature,
+            feature: self.meta.active_feature,
         }
     }
 }
@@ -195,7 +184,10 @@ impl ImageDrawable for LeafParser<'_> {
     where
         DT: DrawTarget<Color = Self::Color>,
     {
-        target.clear(Self::Color::from(!self.feature))?;
+        // dbg!(self, self.buf.len());
+        if !self.meta.partial {
+            target.clear(Self::Color::from(!self.meta.active_feature))?;
+        }
 
         for leaf in self.into_iter() {
             leaf.draw(target)?

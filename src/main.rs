@@ -5,7 +5,7 @@ use std::{
 };
 
 use argh::FromArgs;
-use linear_quadtree::enc::{video::VideoEncoder, QuadTree};
+use monochrome_quadtree::enc::{video::VideoEncoder, QuadTree};
 
 #[derive(FromArgs)]
 /// Encode one or more frames using linear quadtrees
@@ -46,6 +46,9 @@ struct Sequence {
     #[argh(option, short = 'f')]
     /// number of frames to process
     frames: Option<u32>,
+    #[argh(option, short = 'k', default = "60")]
+    /// inclusive interval between I-frames
+    i_frame_interval: u16,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -91,7 +94,7 @@ fn sequence(args: Sequence) -> io::Result<()> {
     let mut input = match_input(args.input);
     let output = match_output(args.output);
 
-    let mut enc = VideoEncoder::new(output);
+    let mut enc = VideoEncoder::new(output, args.i_frame_interval);
     if let Some(f) = args.frames {
         io::copy(&mut input.take(f as u64 * 1024), &mut enc)?;
     } else {

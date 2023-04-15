@@ -86,7 +86,7 @@ fn expected_leaves() -> [Leaf; 5] {
 
 #[rustfmt::skip]
 pub const EXPECTED_BYTES: &[u8] = &[
-    1,
+    0b101,
     0b1_010_01_01,
     0b1_011_01_11, 0b01_00_00_00,
     0b1_100_01_11, 0b11_01_00_00,
@@ -108,7 +108,7 @@ fn full() {
     );
 
     tree.store_packed(&mut out).unwrap();
-    assert_eq!(out, [0])
+    assert_eq!(out, [0b100])
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn empty() {
     );
 
     tree.store_packed(&mut out).unwrap();
-    assert_eq!(out, [1])
+    assert_eq!(out, [0b101])
 }
 
 #[test]

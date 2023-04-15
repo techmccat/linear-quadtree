@@ -1,7 +1,10 @@
-use crate::{Leaf, LeafData};
+use crate::{FrameMeta, Leaf, LeafData};
 
 use bitvec::prelude::*;
-use std::io::{Result as IoResult, Write};
+use std::{
+    io::{Result as IoResult, Write},
+    iter::repeat
+};
 
 pub mod video;
 
@@ -12,7 +15,7 @@ type BitSliceU8 = BitSlice<u8, Msb0>;
 type BitVecU8 = BitVec<u8, Msb0>;
 type Position = heapless::Vec<u8, 7>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     Empty,
     Leaf(LeafData),
@@ -79,11 +82,37 @@ impl Node {
             Self::Leaf(LeafData::Bitmap(bitmap))
         }
     }
+
+    pub fn diff(&self, other: &Self) -> Self {
+        match (self.children(), other.children()) {
+            (Some(a), Some(b)) => {
+                let nodes = [
+                    a[0].diff(&b[0]),
+                    a[1].diff(&b[1]),
+                    a[2].diff(&b[2]),
+                    a[3].diff(&b[3]),
+                ];
+                if nodes.iter().eq(repeat(&Self::Empty)) {
+                    Self::Empty
+                } else {
+                    Self::Branch(Box::new(nodes))
+                }
+            }
+            (None, None) => {
+                if self == other {
+                    Self::Empty
+                } else {
+                    self.clone()
+                }
+            }
+            _ => self.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct QuadTree {
-    head: Node,
+    pub head: Node,
 }
 
 impl QuadTree {
@@ -98,8 +127,8 @@ impl QuadTree {
 
         if Frame::new(&z_curve, 128).uniform() {
             return QuadTree {
-                head: Node::Leaf(LeafData::Feature(buf[0] == 255))
-            }
+                head: Node::Leaf(LeafData::Feature(buf[0] == 255)),
+            };
         }
 
         let mut out = Self {
@@ -120,6 +149,10 @@ impl QuadTree {
             stack,
             position: Default::default(),
         }
+    }
+
+    pub fn diff(&self, other: &Self) -> Self {
+        Self { head: self.head.diff(&other.head) }
     }
 
     /// Stores the leaves as packed bytes into a writer.
@@ -151,18 +184,36 @@ impl QuadTree {
         let mut count = 1;
 
         if yes.clone().count() < no.clone().count() {
-            w.write_all(&[1])?;
+            w.write_all(&[FrameMeta::new(true, false, true).into()])?;
             for leaf in yes {
                 count += leaf.write(&mut w)?;
             }
         } else {
-            w.write_all(&[0])?;
+            w.write_all(&[FrameMeta::new(false, false, true).into()])?;
             for leaf in no {
                 count += leaf.write(&mut w)?;
             }
         }
 
         Ok(count)
+    }
+
+    /// Same as `store_packed`, but keeps both features and tells the decoder not to clear the
+    /// framebuffer with the inactive feature before drawing, used in p-frames.
+    pub fn store_as_diff<W: Write>(&self, mut w: W) -> IoResult<(usize, usize)> {
+        let mut count_yes = 1;
+        let mut count_no = 1;
+
+        w.write_all(&[FrameMeta::new(true, true, false).into()])?;
+        for leaf in self.iter().filter(|l| l.feat_or_data(true)) {
+            count_yes += leaf.write(&mut w)?;
+        }
+        w.write_all(&[FrameMeta::new(false, true, true).into()])?;
+        for leaf in self.iter().filter(|l| l.feat_or_data(false)) {
+            count_no += leaf.write(&mut w)?;
+        }
+
+        Ok((count_yes, count_no))
     }
 }
 
@@ -227,6 +278,9 @@ impl Leaf {
             bits[4..][i * 2..=i * 2 + 1].store(*p)
         }
 
+        if depth > 5 {
+            panic!("Depth not supposed to exceed 5")
+        }
         let mut written = 0;
         if depth > 2 {
             w.write_all(&data)?;
