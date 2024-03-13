@@ -9,6 +9,19 @@ pub mod enc;
 #[cfg(test)]
 pub mod tests;
 
+mod utils {
+    pub(crate) fn next_pos(pos: &mut crate::Position) -> Option<()> {
+        Some(if let Some(p) = pos.last_mut() {
+            if *p + 1 > 3 {
+                pos.pop()?;
+                next_pos(pos);
+            } else {
+                *p += 1
+            }
+        })
+    }
+}
+
 type Position = heapless::Vec<u8, 7>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -90,6 +103,7 @@ impl Leaf {
         true
     }
 
+    #[cfg_attr(not(feature = "enc"), allow(dead_code))]
     fn feat_or_data(&self, feat: bool) -> bool {
         match self.data {
             LeafData::Bitmap(_) => true,

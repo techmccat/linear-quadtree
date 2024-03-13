@@ -1,4 +1,4 @@
-use crate::{FrameMeta, Leaf, LeafData, Position};
+use crate::{FrameMeta, Leaf, LeafData, Position, utils::next_pos};
 
 use bitvec::prelude::*;
 use std::{
@@ -257,17 +257,6 @@ impl<'a> Iterator for QuadTreeTraverser<'a> {
 pub struct QuadTreeIterator<'a> {
     inner: QuadTreeTraverser<'a>,
     position: Position,
-}
-
-pub(crate) fn next_pos(pos: &mut Position) -> Option<()> {
-    Some(if let Some(p) = pos.last_mut() {
-        if *p + 1 > 3 {
-            pos.pop()?;
-            next_pos(pos);
-        } else {
-            *p += 1
-        }
-    })
 }
 
 impl Iterator for QuadTreeIterator<'_> {

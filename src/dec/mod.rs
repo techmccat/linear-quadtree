@@ -1,4 +1,4 @@
-use crate::{FrameMeta, Leaf, LeafData, enc::next_pos};
+use crate::{FrameMeta, Leaf, LeafData, utils::next_pos};
 
 use bitvec::prelude::*;
 use core::{
