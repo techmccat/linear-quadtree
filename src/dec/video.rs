@@ -1,18 +1,26 @@
-use core::convert::TryInto;
+use core::{convert::TryInto, marker::PhantomData};
 
-pub struct VideoSlice<'a> {
+use super::Decoder;
+
+#[derive(Debug)]
+pub struct VideoSlice<'a, D> {
     buf: &'a [u8],
     index: usize,
+    _dec: PhantomData<D>,
 }
 
-impl<'a> VideoSlice<'a> {
+impl<'a, D: Decoder<'a>> VideoSlice<'a, D> {
     pub fn new(buf: &'a [u8]) -> Self {
-        Self { buf, index: 0 }
+        Self {
+            buf,
+            index: 0,
+            _dec: PhantomData,
+        }
     }
 }
 
-impl<'a> Iterator for VideoSlice<'a> {
-    type Item = super::LeafParser<'a>;
+impl<'a, D: Decoder<'a>> Iterator for VideoSlice<'a, D> {
+    type Item = D;
 
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.index + 2;
@@ -25,7 +33,7 @@ impl<'a> Iterator for VideoSlice<'a> {
             self.index = end;
 
             if self.buf.len() >= end {
-                Self::Item::new(&self.buf[start..end]).ok()
+                Self::Item::from_buf(&self.buf[start..end]).ok()
             } else {
                 None
             }
@@ -38,7 +46,7 @@ impl<'a> Iterator for VideoSlice<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dec::LeafParser;
+    use crate::dec::{LeafParserV1, LeafParserV2};
 
     #[test]
     fn parse() {
@@ -52,13 +60,22 @@ mod tests {
             0, 0, 0, 0
         ];
 
-        let expect = [
-            LeafParser::new(&buf[2..3]).unwrap(),
-            LeafParser::new(&buf[5..8]).unwrap(),
-            LeafParser::new(&buf[10..14]).unwrap(),
+        let expect_v1 = [
+            LeafParserV1::new(&buf[2..3]).unwrap(),
+            LeafParserV1::new(&buf[5..8]).unwrap(),
+            LeafParserV1::new(&buf[10..14]).unwrap(),
         ];
 
-        for (l, r) in expect.iter().zip(VideoSlice::new(&buf)) {
+        for (l, r) in expect_v1.iter().zip(VideoSlice::<LeafParserV1>::new(&buf)) {
+            assert_eq!(*l, r)
+        }
+
+        let expect_v2 = [
+            LeafParserV2::from_buf(&buf[2..3]).unwrap(),
+            LeafParserV2::from_buf(&buf[5..8]).unwrap(),
+            LeafParserV2::from_buf(&buf[10..14]).unwrap(),
+        ];
+        for (l, r) in expect_v2.iter().zip(VideoSlice::<LeafParserV2>::new(&buf)) {
             assert_eq!(*l, r)
         }
     }

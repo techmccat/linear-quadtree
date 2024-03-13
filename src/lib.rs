@@ -1,8 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-
 use core::convert::TryFrom;
-
-use heapless::Vec;
 
 #[cfg(feature = "dec")]
 pub mod dec;
@@ -11,6 +8,8 @@ pub mod enc;
 
 #[cfg(test)]
 pub mod tests;
+
+type Position = heapless::Vec<u8, 7>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct FrameMeta {
@@ -59,7 +58,7 @@ impl TryFrom<u8> for FrameMeta {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Leaf {
     pub data: LeafData,
-    pos: Vec<u8, 5>,
+    pos: Position,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -69,7 +68,7 @@ pub enum LeafData {
 }
 
 impl Leaf {
-    pub fn new(data: LeafData, pos: Vec<u8, 5>) -> Self {
+    pub fn new(data: LeafData, pos: Position) -> Self {
         Self { data, pos }
     }
 

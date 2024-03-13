@@ -1,9 +1,12 @@
-use crate::{Leaf, LeafData, FrameMeta};
+use crate::{FrameMeta, Leaf, LeafData, enc::next_pos};
 
-use core::{convert::{TryInto, TryFrom}, cmp};
 use bitvec::prelude::*;
+use core::{
+    cmp,
+    convert::{TryFrom, TryInto},
+};
 use embedded_graphics::{
-    image::{Image, ImageRaw, ImageDrawable},
+    image::{Image, ImageDrawable, ImageRaw},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::Rectangle,
@@ -67,50 +70,73 @@ impl Leaf {
     }
 }
 
+pub struct DrawWrapper<D>(D);
+
+pub trait Decoder<'a>: Sized {
+    type Iterator: Iterator<Item = Leaf>;
+    fn from_buf(buf: &'a [u8]) -> Result<Self, ParseError>;
+    fn iter(&self) -> Self::Iterator;
+    fn flush_after(&self) -> bool;
+    fn clear_framebuffer(&self) -> Option<BinaryColor>;
+    fn drawable(self) -> DrawWrapper<Self> {
+        DrawWrapper(self)
+    }
+}
+
 #[derive(Debug)]
 pub enum ParseError {
     InvalidHeader,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct LeafParser<'a> {
+#[derive(Debug, PartialEq, Clone)]
+pub struct LeafParserV1<'a> {
     buf: &'a [u8],
-    meta: FrameMeta
+    meta: FrameMeta,
 }
 
-impl<'a> LeafParser<'a> {
+impl<'a> LeafParserV1<'a> {
     pub fn new(buf: &'a [u8]) -> Result<Self, ParseError> {
         match buf.get(0).map(|meta| FrameMeta::try_from(*meta)) {
-            Some(Ok(meta)) => Ok(Self { buf: &buf[1..], meta }),
+            Some(Ok(meta)) => Ok(Self {
+                buf: &buf[1..],
+                meta,
+            }),
             _ => Err(ParseError::InvalidHeader),
         }
     }
-
-    pub fn flush_after(&self) -> bool {
-        self.meta.display
-    }
 }
 
-impl<'a> IntoIterator for &'a LeafParser<'a> {
-    type IntoIter = LeafParserIter<'a>;
-    type Item = Leaf;
-
-    fn into_iter(self) -> Self::IntoIter {
-        LeafParserIter {
+impl<'a> Decoder<'a> for LeafParserV1<'a> {
+    type Iterator = LeafParserIterV1<'a>;
+    fn from_buf(buf: &'a [u8]) -> Result<Self, ParseError> {
+        Self::new(buf)
+    }
+    fn iter(&self) -> LeafParserIterV1<'a> {
+        LeafParserIterV1 {
             buf: self.buf,
             index: 0,
             feature: self.meta.active_feature,
         }
     }
+    fn flush_after(&self) -> bool {
+        self.meta.display
+    }
+    fn clear_framebuffer(&self) -> Option<BinaryColor> {
+        if !self.meta.partial {
+            Some(BinaryColor::from(!self.meta.active_feature))
+        } else {
+            None
+        }
+    }
 }
 
-pub struct LeafParserIter<'a> {
+pub struct LeafParserIterV1<'a> {
     buf: &'a [u8],
     index: usize,
     feature: bool,
 }
 
-impl<'a> Iterator for LeafParserIter<'a> {
+impl<'a> Iterator for LeafParserIterV1<'a> {
     type Item = Leaf;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -171,25 +197,24 @@ impl<'a> Iterator for LeafParserIter<'a> {
     }
 }
 
-impl OriginDimensions for LeafParser<'_> {
+impl<'a, D: Decoder<'a>> OriginDimensions for DrawWrapper<D> {
     fn size(&self) -> Size {
         Size::new_equal(2u32.pow(7))
     }
 }
 
-impl ImageDrawable for LeafParser<'_> {
+impl<'a, D: Decoder<'a>> ImageDrawable for DrawWrapper<D> {
     type Color = BinaryColor;
 
     fn draw<DT>(&self, target: &mut DT) -> Result<(), DT::Error>
     where
         DT: DrawTarget<Color = Self::Color>,
     {
-        // dbg!(self, self.buf.len());
-        if !self.meta.partial {
-            target.clear(Self::Color::from(!self.meta.active_feature))?;
+        if let Some(c) = self.0.clear_framebuffer() {
+            target.clear(c)?;
         }
 
-        for leaf in self.into_iter() {
+        for leaf in self.0.iter() {
             leaf.draw(target)?
         }
 
@@ -200,7 +225,7 @@ impl ImageDrawable for LeafParser<'_> {
     where
         DT: DrawTarget<Color = Self::Color>,
     {
-        for leaf in self.into_iter() {
+        for leaf in self.0.iter() {
             let rect = leaf.bounding_box().intersection(area);
 
             if !rect.is_zero_sized() {
@@ -208,5 +233,58 @@ impl ImageDrawable for LeafParser<'_> {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LeafParserV2<'a> {
+    buf: &'a [u8]
+}
+
+impl<'a> Decoder<'a> for LeafParserV2<'a> {
+    type Iterator = LeafParserIterV2<'a>;
+    fn from_buf(buf: &'a [u8]) -> Result<Self, ParseError> {
+        Ok(Self{ buf })
+    }
+    fn iter(&self) -> Self::Iterator {
+        LeafParserIterV2 {
+            inner: self.buf.view_bits().chunks_exact(2),
+            pos: Default::default(),
+        }
+    }
+    fn flush_after(&self) -> bool {
+        true
+    }
+    fn clear_framebuffer(&self) -> Option<BinaryColor> {
+        None
+    }
+}
+
+pub struct LeafParserIterV2<'a> {
+    inner: bitvec::slice::ChunksExact<'a, u8, Msb0>,
+    pos: crate::Position,
+}
+
+impl Iterator for LeafParserIterV2<'_> {
+    type Item = Leaf;
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(bits) = self.inner.next() {
+            match bits.load::<u8>() {
+                0b00 => next_pos(&mut self.pos)?, // empty node
+                0b01 => self.pos.push(0).expect("Max depth exceeded"), // branch
+                0b10 => { // leaf, value = 0
+                    let pos = self.pos.clone();
+                    next_pos(&mut self.pos)?;
+                    return Some(Leaf::new(LeafData::Feature(false), pos))
+                },
+                0b11 => { // leaf, value = 1
+                    let pos = self.pos.clone();
+                    next_pos(&mut self.pos)?;
+                    return Some(Leaf::new(LeafData::Feature(true), pos))
+                }
+                _ => unreachable!(),
+            }
+        }
+        None
     }
 }

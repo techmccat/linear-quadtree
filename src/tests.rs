@@ -1,3 +1,10 @@
+use crate::{
+    dec::{Decoder, LeafParserV2},
+    enc::{
+        tests::EXPECTED_BYTES_COMPACT,
+        video::{Encode, EncoderV2},
+    },
+};
 use std::{
     convert::{Infallible, TryFrom},
     fs::File,
@@ -11,10 +18,10 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay};
 
 use crate::{
-    dec::{video::VideoSlice, LeafParser},
+    dec::{video::VideoSlice, LeafParserV1},
     enc::{
-        tests::{BUF, EXPECTED_BYTES},
-        video::VideoEncoder,
+        tests::{BUF, EXPECTED_BYTES_LINEAR},
+        video::{EncoderV1, VideoEncoder},
         QuadTree,
     },
     FrameMeta,
@@ -76,7 +83,6 @@ fn framemeta_pack_then_parse() {
     for a in foo {
         for b in foo {
             for c in foo {
-                dbg!(a, b, c);
                 let left = FrameMeta::new(a, b, c);
                 let int: u8 = left.into();
                 let right = FrameMeta::try_from(int).unwrap();
@@ -87,81 +93,86 @@ fn framemeta_pack_then_parse() {
 }
 
 #[test]
-fn enc_then_draw() {
+fn enc_then_draw_v1() {
     let mut out = Vec::with_capacity(12);
 
-    let tree = QuadTree::from_128x64(&BUF);
+    let tree = QuadTree::from_128x64(&BUF, true);
     tree.store_packed(&mut out).unwrap();
 
     // really just a sanity check
-    assert_eq!(EXPECTED_BYTES, out.as_slice());
+    assert_eq!(EXPECTED_BYTES_LINEAR, out.as_slice());
 
     let mut display = DumpableDisplay::default();
 
-    let dec = LeafParser::new(&out).unwrap();
-    dec.draw(&mut display).unwrap();
+    let dec = LeafParserV1::new(&out).unwrap();
+    dec.drawable().draw(&mut display).unwrap();
 
     assert_eq!(BUF, display.buf.as_raw_slice())
 }
 
 #[test]
-fn bad_apple() -> std::io::Result<()> {
-    let input = {
-        let mut buf = Vec::new();
-        File::open("test_data/frames.bin")?.read_to_end(&mut buf)?;
-        buf
-    };
+fn enc_then_draw_v2() {
+    let tree = QuadTree::from_128x64(&BUF, false);
+    let compact = tree.collect_compact().unwrap();
 
+    assert_eq!(EXPECTED_BYTES_COMPACT, compact.as_raw_slice());
+
+    let mut display = DumpableDisplay::default();
+    let dec = LeafParserV2::from_buf(compact.as_raw_slice()).unwrap();
+    dec.drawable().draw(&mut display).unwrap();
+
+    assert_eq!(BUF, display.buf.as_raw_slice())
+}
+
+fn read_test_frames() -> Vec<u8> {
+    let mut buf = Vec::new();
+    File::open("test_data/frames.bin")
+        .unwrap()
+        .read_to_end(&mut buf)
+        .unwrap();
+    buf
+}
+fn encode_test_frames<E: Encode>(iframe_int: u16) -> (Vec<u8>, Vec<u8>) {
+    let input = read_test_frames();
     let mut output = Vec::with_capacity(input.len() / 2);
-    let mut enc = VideoEncoder::new(&mut output, 1);
-    enc.write_all(&input)?;
-
-    compare_original_and_encoded(&input, &output);
-    Ok(())
+    let mut enc = VideoEncoder::<_, E>::new(&mut output, iframe_int);
+    enc.write_all(&input).unwrap();
+    (input, output)
 }
 
 #[test]
-fn bad_apple_pframes() -> std::io::Result<()> {
-    let input = {
-        let mut buf = Vec::new();
-        File::open("test_data/frames.bin")?.read_to_end(&mut buf)?;
-        buf
-    };
-
-    let mut output = Vec::with_capacity(input.len() / 2);
-    let mut enc = VideoEncoder::new(&mut output, 60);
-    enc.write_all(&input)?;
-
-    compare_original_and_encoded(&input, &output);
-    Ok(())
+fn bad_apple_v2() {
+    let (input, output) = encode_test_frames::<EncoderV2>(60);
+    compare_original_and_encoded::<LeafParserV2>(&input, &output);
 }
 
-fn compare_original_and_encoded(original: &[u8], encoded: &[u8]) {
+#[test]
+fn bad_apple_v1() {
+    let (input, output) = encode_test_frames::<EncoderV1>(1);
+    compare_original_and_encoded::<LeafParserV1>(&input, &output);
+}
+
+#[test]
+fn bad_apple_pframes_v1() {
+    let (input, output) = encode_test_frames::<EncoderV1>(60);
+    compare_original_and_encoded::<LeafParserV1>(&input, &output);
+}
+
+fn compare_original_and_encoded<'a, D: Decoder<'a> + Clone + core::fmt::Debug>(
+    original: &[u8],
+    encoded: &'a [u8],
+) {
     let mut display = DumpableDisplay::default();
     let bitmaps = original.chunks(1024).take_while(|c| c.len() == 1024);
-    let mut enc_iter = VideoSlice::new(&encoded);
-    // let mut old_tree = None;
+    let mut enc_iter: VideoSlice<D> = VideoSlice::new(&encoded);
 
     for (i, frame) in bitmaps.enumerate() {
-        // dbg!(i);
         let mut last_leaves = [None, None];
 
-        // if i == 363 {
-        //     old_tree = Some(QuadTree::from_128x64(frame.try_into().unwrap()));
-        // }
-        // if i == 364 {
-        //     dump_to_image(&frame, "test_data/364.png");
-        //     let tree = QuadTree::from_128x64(frame.try_into().unwrap());
-        //     let old_tree = old_tree.take().unwrap();
-        //     let diff = tree.diff(&old_tree);
-        //     dbg!(old_tree, tree, diff);
-        // }
-
         for leaves in enc_iter.by_ref() {
-            leaves.draw(&mut display).unwrap();
+            leaves.clone().drawable().draw(&mut display).unwrap();
 
-            let stop = leaves.flush_after();
-            if stop {
+            if leaves.flush_after() {
                 last_leaves[1] = Some(leaves);
                 break;
             } else {
@@ -170,11 +181,16 @@ fn compare_original_and_encoded(original: &[u8], encoded: &[u8]) {
         }
 
         if frame != display.buf.as_raw_slice() {
-            dump_to_image(&frame, "test_data/left.png");
-            dump_to_image(&display.buf.as_raw_slice(), "test_data/right.png");
+            dump_to_image(&frame, "test_data/orig.png");
+            dump_to_image(&display.buf.as_raw_slice(), "test_data/decoded.png");
 
             let mut leaf_dump = File::create("test_data/leaves.txt").unwrap();
-            let leaves: Vec<_> = last_leaves.iter().flatten().flatten().collect();
+            let leaves: Vec<_> = last_leaves
+                .iter()
+                .flatten()
+                .map(Decoder::iter)
+                .flatten()
+                .collect();
             write!(&mut leaf_dump, "Leaf dump:\n{leaves:#?}").unwrap();
 
             panic!("Decoded image did not match the source frame {}", i)

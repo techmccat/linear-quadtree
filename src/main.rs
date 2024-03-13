@@ -5,11 +5,14 @@ use std::{
 };
 
 use argh::FromArgs;
-use monochrome_quadtree::enc::{video::VideoEncoder, QuadTree};
+use monochrome_quadtree::enc::{video::{VideoEncoder, EncoderV1, EncoderV2}, QuadTree};
 
 #[derive(FromArgs)]
 /// Encode one or more frames using linear quadtrees
 struct Encode {
+    #[argh(option, short = 'v', default = "1")]
+    /// tree wire format version
+    version: u8,
     #[argh(subcommand)]
     subs: SubCommands,
 }
@@ -55,51 +58,68 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Encode = argh::from_env();
 
     match args.subs {
-        SubCommands::Frame(s) => frame(s),
-        SubCommands::Sequence(s) => sequence(s),
+        SubCommands::Frame(s) => frame(s, args.version),
+        SubCommands::Sequence(s) => sequence(s, args.version),
     }
     .map_err(|e| e.into())
 }
 
-fn match_input(i: String) -> Box<dyn Read> {
-    match i.as_str() {
+fn match_input(i: &str) -> Box<dyn Read> {
+    match i {
         // TODO: check if stdio is a tty
         "-" => Box::new(BufReader::new(stdin())),
         _ => Box::new(BufReader::new(File::open(i).unwrap())),
     }
 }
 
-fn match_output(i: String) -> Box<dyn Write> {
-    match i.as_str() {
+fn match_output(i: &str) -> Box<dyn Write> {
+    match i {
         // TODO: check if stdio is a tty
         "-" => Box::new(BufWriter::new(stdout())),
         _ => Box::new(BufWriter::new(File::create(i).unwrap())),
     }
 }
 
-fn frame(args: Frame) -> io::Result<()> {
-    let mut input = match_input(args.input);
-    let output = match_output(args.output);
+fn frame(args: Frame, version: u8) -> io::Result<()> {
+    let mut input = match_input(&args.input);
+    let mut output = match_output(&args.output);
 
     let mut buf = [0; 1024];
     input.read_exact(&mut buf)?;
 
-    let enc = QuadTree::from_128x64(&buf);
-    enc.store_packed(output)?;
-
+    match version {
+        1 => { QuadTree::from_128x64(&buf, true).store_packed(output)?; },
+        2 => { output.write_all(QuadTree::from_128x64(&buf, false).collect_compact().unwrap().as_raw_slice())?; },
+        _ => panic!("Invalid format version, valid versions are 1 and 2"),
+    }
     Ok(())
 }
 
-fn sequence(args: Sequence) -> io::Result<()> {
-    let mut input = match_input(args.input);
-    let output = match_output(args.output);
+fn sequence(args: Sequence, version: u8) -> io::Result<()> {
+    let input = match_input(&args.input);
+    let output = match_output(&args.output);
 
-    let mut enc = VideoEncoder::new(output, args.i_frame_interval);
-    if let Some(f) = args.frames {
+    match version {
+        1 => seq_v1(output, input, args),
+        2 => seq_v2(output, input, args),
+        _ => panic!("Invalid format version, valid versions are 1 and 2"),
+    }
+}
+
+fn seq_v1(output: Box<dyn Write>, mut input: Box<dyn Read>, args: Sequence) -> io::Result<()> {
+    let mut enc = VideoEncoder::<_, EncoderV1>::new(output, args.i_frame_interval);
+    Ok(if let Some(f) = args.frames {
         io::copy(&mut input.take(f as u64 * 1024), &mut enc)?;
     } else {
         io::copy(&mut input, &mut enc)?;
-    }
+    })
+}
 
-    Ok(())
+fn seq_v2(output: Box<dyn Write>, mut input: Box<dyn Read>, args: Sequence) -> io::Result<()> {
+    let mut enc = VideoEncoder::<_, EncoderV2>::new(output, args.i_frame_interval);
+    Ok(if let Some(f) = args.frames {
+        io::copy(&mut input.take(f as u64 * 1024), &mut enc)?;
+    } else {
+        io::copy(&mut input, &mut enc)?;
+    })
 }

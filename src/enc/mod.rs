@@ -1,9 +1,9 @@
-use crate::{FrameMeta, Leaf, LeafData};
+use crate::{FrameMeta, Leaf, LeafData, Position};
 
 use bitvec::prelude::*;
 use std::{
     io::{Result as IoResult, Write},
-    iter::repeat
+    iter::repeat,
 };
 
 pub mod video;
@@ -13,7 +13,6 @@ pub mod tests;
 
 type BitSliceU8 = BitSlice<u8, Msb0>;
 type BitVecU8 = BitVec<u8, Msb0>;
-type Position = heapless::Vec<u8, 7>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
@@ -57,16 +56,16 @@ impl Node {
     }
 
     /// Parse a monochrome bitmap into Self.
-    fn from_sector(sec: Frame) -> Self {
+    fn from_sector(sec: Frame, use_bitmap: bool) -> Self {
         if sec.uniform() {
             Self::Leaf(LeafData::Feature(sec.color()))
-        } else if sec.side > 4 {
+        } else if sec.side > 4 || !use_bitmap {
             let [tl, tr, bl, br] = sec.split_four();
             Self::Branch(Box::new([
-                Self::from_sector(tl),
-                Self::from_sector(tr),
-                Self::from_sector(bl),
-                Self::from_sector(br),
+                Self::from_sector(tl, use_bitmap),
+                Self::from_sector(tr, use_bitmap),
+                Self::from_sector(bl, use_bitmap),
+                Self::from_sector(br, use_bitmap),
             ]))
         } else {
             // convert from z-curve and store after the leaf
@@ -92,7 +91,7 @@ impl Node {
                     a[2].diff(&b[2]),
                     a[3].diff(&b[3]),
                 ];
-                if nodes.iter().eq(repeat(&Self::Empty)) {
+                if nodes.iter().eq(repeat(&Self::Empty).take(4)) {
                     Self::Empty
                 } else {
                     Self::Branch(Box::new(nodes))
@@ -121,7 +120,7 @@ impl QuadTree {
     }
 
     /// Builds a new tree from a 128x64 monochrome framebuffer.
-    pub fn from_128x64(buf: &[u8; 1024]) -> Self {
+    pub fn from_128x64(buf: &[u8; 1024], use_bitmap: bool) -> Self {
         let mut z_curve: BitVecU8 = BitVec::with_capacity(buf.len() * 8);
         z_order_2to1(buf, &mut z_curve, 128);
 
@@ -136,23 +135,29 @@ impl QuadTree {
         };
         let [left, right, _, _] = out.head.children_mut().unwrap();
 
-        *left = Node::from_sector(Frame::new(&z_curve[..4096], 64));
-        *right = Node::from_sector(Frame::new(&z_curve[4096..], 64));
+        *left = Node::from_sector(Frame::new(&z_curve[..4096], 64), use_bitmap);
+        *right = Node::from_sector(Frame::new(&z_curve[4096..], 64), use_bitmap);
 
         out
     }
 
-    pub fn iter(&self) -> QuadTreeIterator {
-        let mut stack = Vec::with_capacity(5 * 4);
-        stack.push(&self.head);
+    pub fn leaves(&self) -> QuadTreeIterator {
         QuadTreeIterator {
-            stack,
+            inner: self.nodes(),
             position: Default::default(),
         }
     }
 
+    pub fn nodes(&self) -> QuadTreeTraverser {
+        QuadTreeTraverser {
+            stack: vec![&self.head],
+        }
+    }
+
     pub fn diff(&self, other: &Self) -> Self {
-        Self { head: self.head.diff(&other.head) }
+        Self {
+            head: self.head.diff(&other.head),
+        }
     }
 
     /// Stores the leaves as packed bytes into a writer.
@@ -178,8 +183,8 @@ impl QuadTree {
     ///
     /// When depth is more than 5, the 4x4 bitmap is stored to save space.
     pub fn store_packed<W: Write>(&self, mut w: W) -> IoResult<usize> {
-        let yes = self.iter().filter(|l| l.feat_or_data(true));
-        let no = self.iter().filter(|l| l.feat_or_data(false));
+        let yes = self.leaves().filter(|l| l.feat_or_data(true));
+        let no = self.leaves().filter(|l| l.feat_or_data(false));
 
         let mut count = 1;
 
@@ -197,6 +202,18 @@ impl QuadTree {
 
         Ok(count)
     }
+    pub fn collect_compact(&self) -> Result<BitVecU8, &str> {
+        let mut out = BitVecU8::new();
+        for n in self.nodes() {
+            match n {
+                Node::Branch(_) => out.extend([false, true]),
+                Node::Empty => out.extend([false, false]),
+                Node::Leaf(LeafData::Feature(val)) => out.extend([true, *val]),
+                Node::Leaf(LeafData::Bitmap(_)) => return Err("Bitmap leaves are not supported by the compact representation"),
+            }
+        }
+        Ok(out)
+    }
 
     /// Same as `store_packed`, but keeps both features and tells the decoder not to clear the
     /// framebuffer with the inactive feature before drawing, used in p-frames.
@@ -205,11 +222,11 @@ impl QuadTree {
         let mut count_no = 1;
 
         w.write_all(&[FrameMeta::new(true, true, false).into()])?;
-        for leaf in self.iter().filter(|l| l.feat_or_data(true)) {
+        for leaf in self.leaves().filter(|l| l.feat_or_data(true)) {
             count_yes += leaf.write(&mut w)?;
         }
         w.write_all(&[FrameMeta::new(false, true, true).into()])?;
-        for leaf in self.iter().filter(|l| l.feat_or_data(false)) {
+        for leaf in self.leaves().filter(|l| l.feat_or_data(false)) {
             count_no += leaf.write(&mut w)?;
         }
 
@@ -217,44 +234,58 @@ impl QuadTree {
     }
 }
 
+/// Depth-first traversal returning every node
+#[derive(Clone, Debug)]
+pub struct QuadTreeTraverser<'a> {
+    stack: Vec<&'a Node>,
+}
+
+impl<'a> Iterator for QuadTreeTraverser<'a> {
+    type Item = &'a Node;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stack.pop().map(|node| {
+            if let Some(nodes) = node.children() {
+                self.stack.extend(nodes.into_iter().rev());
+            }
+            node
+        })
+    }
+}
+
+/// Depth-first traversal returning leaves
 #[derive(Clone, Debug)]
 pub struct QuadTreeIterator<'a> {
-    stack: Vec<&'a Node>,
+    inner: QuadTreeTraverser<'a>,
     position: Position,
 }
 
-impl QuadTreeIterator<'_> {
-    fn leaf_met(&mut self) {
-        self.position.last_mut().map(|pos| *pos += 1);
-        if self.position.last() == Some(&4) {
-            self.position.pop();
-            self.leaf_met();
+pub(crate) fn next_pos(pos: &mut Position) -> Option<()> {
+    Some(if let Some(p) = pos.last_mut() {
+        if *p + 1 > 3 {
+            pos.pop()?;
+            next_pos(pos);
+        } else {
+            *p += 1
         }
-    }
+    })
 }
 
 impl Iterator for QuadTreeIterator<'_> {
     type Item = Leaf;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(node) = self.stack.pop() {
-            if let Some(nodes) = node.children() {
-                // println!("Current depth: {}", self.position.len());
-                self.position
-                    .push(0)
-                    .expect("Max depth exceeded during traversal");
-                for node in nodes.into_iter().rev() {
-                    self.stack.push(node);
-                }
-            } else {
-                let pos = self.position.clone();
-                self.leaf_met();
-                if let Node::Leaf(feat) = node {
+        while let Some(node) = self.inner.next() {
+            match node {
+                Node::Leaf(data) => {
+                    let pos = self.position.clone();
+                    next_pos(&mut self.position);
                     return Some(Leaf::new(
-                        *feat,
-                        heapless::Vec::from_slice(&pos.get(..5).unwrap_or(&pos)).unwrap(),
+                        *data,
+                        pos.clone(),
                     ));
                 }
+                Node::Empty => next_pos(&mut self.position).unwrap(),
+                Node::Branch(_) => self.position.push(0).expect("Max depth exceeded"),
             }
         }
         None

@@ -1,91 +1,125 @@
-use super::QuadTree;
+use super::{BitVecU8, QuadTree};
 
 use std::{
     cmp::min,
     io::{Result as IoResult, Write},
 };
 
-pub struct VideoEncoder<W: Write> {
-    writer: W,
-    buf: [u8; 1024],
-    cursor: usize,
-    leaf_buf: Vec<u8>,
-    i_frame_interval: u16,
-    frame_counter: u16,
-    previous_tree: Option<QuadTree>
+pub trait Encode: Sized + Default {
+    fn encode_i_frame<W: Write>(&mut self, buf: &[u8; 1024], w: W) -> IoResult<()>;
+    fn encode_p_frame<W: Write>(&mut self, buf: &[u8; 1024], w: W) -> IoResult<()>;
 }
 
-impl<W: Write> VideoEncoder<W> {
-    pub fn new(writer: W, i_frame_interval: u16) -> Self {
-        Self {
-            writer,
-            buf: [0; 1024],
-            cursor: 0,
-            leaf_buf: Vec::with_capacity(512),
-            i_frame_interval,
-            frame_counter: i_frame_interval,
-            previous_tree: None,
-        }
-    }
+pub struct VideoEncoder<W, E> {
+    writer: W,
+    encoder: E,
+    buf: [u8; 1024],
+    cursor: usize,
+    i_frame_interval: u16,
+    frame_counter: u16,
+}
 
-    fn encode_buf(&mut self) -> IoResult<()> {
-        if self.frame_counter < self.i_frame_interval {
-            self.frame_counter += 1;
-            self.encode_p_frame()
-        } else {
-            self.frame_counter = 1;
-            self.encode_i_frame()
-        }
-    }
+#[derive(Debug, Default)]
+pub struct EncoderV1 {
+    previous_tree: Option<QuadTree>,
+}
 
-    fn encode_i_frame(&mut self) -> IoResult<()> {
-        let tree = QuadTree::from_128x64(&self.buf);
-        let len = tree.store_packed(&mut self.leaf_buf)?;
-
+impl Encode for EncoderV1 {
+    fn encode_i_frame<W: Write>(&mut self, buf: &[u8; 1024], mut w: W) -> IoResult<()> {
+        let tree = QuadTree::from_128x64(buf, true);
+        let mut leaf_buf = Vec::with_capacity(1024);
+        let len = tree.store_packed(&mut leaf_buf)?;
         self.previous_tree = Some(tree);
-        self.flush(0, len)?;
 
-        self.leaf_buf.clear();
-        Ok(())
+        w.write_all(&(len as u16).to_le_bytes())?;
+        w.write_all(&leaf_buf)
     }
-
-    fn encode_p_frame(&mut self) -> IoResult<()> {
-        let tree = QuadTree::from_128x64(&self.buf);
-        if let Some(prev) = self.previous_tree.take() {
+    fn encode_p_frame<W: Write>(&mut self, buf: &[u8; 1024], mut w: W) -> IoResult<()> {
+        let tree = QuadTree::from_128x64(buf, true);
+        Ok(if let Some(prev) = self.previous_tree.take() {
             let diff = tree.diff(&prev);
+            let mut leaf_buf = Vec::with_capacity(1024);
 
-            let (len_y, len_n) = diff.store_as_diff(&mut self.leaf_buf)?;
+            let (len_y, len_n) = diff.store_as_diff(&mut leaf_buf)?;
 
             let mut tmp = Vec::with_capacity(1024);
             let full_len = tree.store_packed(&mut tmp)?;
 
-            self.previous_tree = Some(tree);
 
-            if full_len < self.leaf_buf.len() {
-                self.cursor = 0;
-                self.writer.write_all(&(full_len as u16).to_le_bytes())?;
-                self.writer.write_all(&tmp)?;
+            let res = if full_len < leaf_buf.len() {
+                w.write_all(&(full_len as u16).to_le_bytes())?;
+                w.write_all(&tmp)?;
             } else {
-                self.flush(0, len_y)?;
-                self.flush(len_y, len_n)?
-            }
-        }
-
-        self.leaf_buf.clear();
-        Ok(())
-    }
-
-    fn flush(&mut self, start: usize, len: usize) -> IoResult<()> {
-        self.cursor = 0;
-
-        self.writer.write_all(&(len as u16).to_le_bytes())?;
-        self.writer.write_all(&self.leaf_buf[start..start + len])?;
-
-        Ok(())
+                w.write_all(&(len_y as u16).to_le_bytes())?;
+                w.write_all(&leaf_buf[..len_y])?;
+                w.write_all(&(len_n as u16).to_le_bytes())?;
+                w.write_all(&leaf_buf[len_y..len_y + len_n])?;
+            };
+            self.previous_tree = Some(tree);
+            res
+        } else {
+            self.encode_p_frame(buf, w)?;
+        })
     }
 }
 
-impl<W: Write> Write for VideoEncoder<W> {
+#[derive(Debug, Default)]
+pub struct EncoderV2 {
+    previous_tree: Option<QuadTree>,
+}
+
+fn write_bits(bits: &BitVecU8, mut w: impl Write) -> IoResult<()> {
+    let bytes = bits.as_raw_slice();
+    let len = bytes.len();
+    w.write_all(&(len as u16).to_le_bytes())?;
+    w.write_all(bytes)
+}
+
+impl Encode for EncoderV2 {
+    fn encode_i_frame<W: Write>(&mut self, buf: &[u8; 1024], w: W) -> IoResult<()> {
+        let tree = QuadTree::from_128x64(buf, false);
+        write_bits(&tree.collect_compact().unwrap(), w)?;
+        self.previous_tree = Some(tree);
+        Ok(())
+    }
+    fn encode_p_frame<W: Write>(&mut self, buf: &[u8; 1024], w: W) -> IoResult<()> {
+        if let Some(prev) = self.previous_tree.take() {
+            let tree = QuadTree::from_128x64(buf, false);
+            let diff = tree.diff(&prev);
+            self.previous_tree = Some(tree);
+            write_bits(&diff.collect_compact().unwrap(), w)
+        } else {
+            eprintln!("iframe fallback");
+            self.encode_i_frame(buf, w)
+        }
+    }
+}
+
+impl<W: Write, E: Encode> VideoEncoder<W, E> {
+    pub fn new(writer: W, i_frame_interval: u16) -> Self {
+        Self {
+            writer,
+            encoder: Default::default(),
+            buf: [0; 1024],
+            cursor: 0,
+            i_frame_interval,
+            frame_counter: i_frame_interval,
+        }
+    }
+
+    fn encode_buf(&mut self) -> IoResult<()> {
+        self.cursor = 0;
+        if self.frame_counter < self.i_frame_interval {
+            self.frame_counter += 1;
+            self.encoder.encode_p_frame(&self.buf, &mut self.writer)
+        } else {
+            self.frame_counter = 1;
+            self.encoder.encode_i_frame(&self.buf, &mut self.writer)
+        }
+    }
+}
+
+impl<W: Write, E: Encode> Write for VideoEncoder<W, E> {
     fn flush(&mut self) -> IoResult<()> {
         self.buf[self.cursor..].fill(0);
 
